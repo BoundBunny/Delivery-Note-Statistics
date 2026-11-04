@@ -50,6 +50,8 @@
 
     if (!view) { viewName = 'home'; view = Views.home.render({}); tab = 'home'; }
 
+    const previous = container.firstElementChild;
+    if (previous && typeof previous.dispose === 'function') previous.dispose();
     container.innerHTML = '';
     container.appendChild(view);
     setTab(tab);

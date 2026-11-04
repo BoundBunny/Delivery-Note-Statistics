@@ -66,7 +66,7 @@ const Store = (() => {
       const kw = String(keyword).trim().toLowerCase();
       arr = arr.filter(c => (c.name + (c.phone || '') + (c.address || '') + (c.contact || '')).toLowerCase().includes(kw));
     }
-    return arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return arr.sort(compareCustomerNames);
   }
   function getCustomer(id) { return d.customers.find(c => c.id === id); }
   function upsertCustomer(data) {
@@ -248,26 +248,42 @@ const Store = (() => {
 
   /* ---------- CSV 导入 ---------- */
   function parseCSV(text) {
-    const lines = String(text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim());
+    text = assertImportText(String(text)).replace(/\r\n?/g, '\n');
+    const firstLine = text.split('\n', 1)[0];
+    const separators = [',', '\t', ';'];
+    const counts = separators.map(separator => {
+      let count = 0, quoted = false;
+      for (const ch of firstLine) { if (ch === '"') quoted = !quoted; else if (!quoted && ch === separator) count++; }
+      return count;
+    });
+    const separator = separators[counts.indexOf(Math.max(...counts))];
     const rows = [];
-    for (const line of lines) {
-      const row = [];
-      let cur = '', inQ = false;
-      for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (inQ) {
-          if (ch === '"') {
-            if (line[i + 1] === '"') { cur += '"'; i++; }
-            else inQ = false;
-          } else cur += ch;
-        } else {
-          if (ch === '"') inQ = true;
-          else if (ch === ',') { row.push(cur); cur = ''; }
-          else cur += ch;
-        }
+    let row = [], cur = '', inQ = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (text[i + 1] === '"') { cur += '"'; i++; }
+          else inQ = false;
+        } else cur += ch;
+      } else if (ch === '"') {
+        if (cur.trim()) throw new Error('CSV 引号格式不正确，请重新导出文件。');
+        cur = ''; inQ = true;
+      } else if (ch === separator) {
+        row.push(cur); cur = '';
+      } else if (ch === '\n') {
+        row.push(cur);
+        if (row.some(cell => cell.trim())) rows.push(row);
+        row = []; cur = '';
+      } else cur += ch;
+    }
+    if (inQ) throw new Error('CSV 引号未闭合，请重新导出文件。');
+    row.push(cur);
+    if (row.some(cell => cell.trim())) rows.push(row);
+    if (rows.length) {
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i].length > rows[0].length) throw new Error('CSV 第 ' + (i + 1) + ' 行列数不正确，请检查逗号或引号。');
       }
-      row.push(cur);
-      rows.push(row);
     }
     return rows;
   }
@@ -278,29 +294,30 @@ const Store = (() => {
     const idx = {
       code: header.findIndex(h => /编号|编码/.test(h)),
       barcode: header.findIndex(h => /条码/.test(h)),
-      name: header.findIndex(h => /名称|品名/.test(h)),
+      name: header.findIndex(h => /^(?:(?:产品|商品|货品)(?:名称|名)|名称|品名|productname|name)$/i.test(h.replace(/\s/g, ''))),
       spec: header.findIndex(h => /规格|型号/.test(h)),
       unit: header.findIndex(h => /单位/.test(h)),
       price: header.findIndex(h => /零售价|价格|售价/.test(h)),
       cost: header.findIndex(h => /成本/.test(h)),
       remark: header.findIndex(h => /备注/.test(h)),
     };
+    if (idx.name < 0) throw new Error('未识别到“产品名称”表头，请选择正确的商品 CSV 文件。');
     let added = 0, skipped = 0;
     const existsName = new Set(d.products.map(p => p.name));
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      const name = (idx.name >= 0 ? r[idx.name] : r[0] || '').trim();
+      const name = String(r[idx.name] || '').trim();
       if (!name) continue;
       if (existsName.has(name)) { skipped++; continue; }
       upsertProduct({
         name,
-        code: (idx.code >= 0 ? r[idx.code] : '').trim(),
-        barcode: (idx.barcode >= 0 ? r[idx.barcode] : '').trim(),
-        spec: (idx.spec >= 0 ? r[idx.spec] : '').trim(),
-        unit: (idx.unit >= 0 ? r[idx.unit] : '').trim(),
-        price: idx.price >= 0 && r[idx.price] !== '' ? Number(r[idx.price]) : undefined,
-        cost: idx.cost >= 0 && r[idx.cost] !== '' ? Number(r[idx.cost]) : undefined,
-        remark: (idx.remark >= 0 ? r[idx.remark] : '').trim(),
+        code: String(idx.code >= 0 ? r[idx.code] || '' : '').trim(),
+        barcode: String(idx.barcode >= 0 ? r[idx.barcode] || '' : '').trim(),
+        spec: String(idx.spec >= 0 ? r[idx.spec] || '' : '').trim(),
+        unit: String(idx.unit >= 0 ? r[idx.unit] || '' : '').trim(),
+        price: idx.price >= 0 && r[idx.price] != null && r[idx.price].trim() !== '' ? Number(r[idx.price]) : undefined,
+        cost: idx.cost >= 0 && r[idx.cost] != null && r[idx.cost].trim() !== '' ? Number(r[idx.cost]) : undefined,
+        remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
       });
       existsName.add(name);
       added++;
@@ -312,30 +329,36 @@ const Store = (() => {
     if (rows.length < 2) throw new Error('没有可导入的客户数据');
     const header = rows[0].map(h => h.trim());
     const idx = {
-      name: header.findIndex(h => /名称|客户/.test(h)),
+      name: header.findIndex(h => /^(?:客户名称|客户名|名称|姓名|customer(?:name)?|name)$/i.test(h.replace(/\s/g, ''))),
       phone: header.findIndex(h => /电话|手机|联系电话/.test(h)),
       address: header.findIndex(h => /地址/.test(h)),
       contact: header.findIndex(h => /联系人/.test(h)),
       remark: header.findIndex(h => /备注/.test(h)),
     };
-    let added = 0, skipped = 0;
-    const existsName = new Set(d.customers.map(c => c.name));
+    if (idx.name < 0) throw new Error('未识别到“客户名称”表头，请选择正确的客户 CSV 文件，Excel 文件需先另存为 CSV。');
+    let skipped = 0;
+    const pending = [];
+    const nameKey = name => String(name || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+    const existsName = new Set(d.customers.map(c => nameKey(c.name)));
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      const name = (idx.name >= 0 ? r[idx.name] : r[0] || '').trim();
+      const name = String(r[idx.name] || '').trim();
       if (!name) continue;
-      if (existsName.has(name)) { skipped++; continue; }
-      upsertCustomer({
+      if (existsName.has(nameKey(name))) { skipped++; continue; }
+      pending.push({
         name,
-        phone: (idx.phone >= 0 ? r[idx.phone] : '').trim(),
-        address: (idx.address >= 0 ? r[idx.address] : '').trim(),
-        contact: (idx.contact >= 0 ? r[idx.contact] : '').trim(),
-        remark: (idx.remark >= 0 ? r[idx.remark] : '').trim(),
+        phone: String(idx.phone >= 0 ? r[idx.phone] || '' : '').trim(),
+        address: String(idx.address >= 0 ? r[idx.address] || '' : '').trim(),
+        contact: String(idx.contact >= 0 ? r[idx.contact] || '' : '').trim(),
+        remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
       });
-      existsName.add(name);
-      added++;
+      existsName.add(nameKey(name));
     }
-    return { added, skipped };
+    if (pending.length) {
+      d.customers = pending.map(customer => ({ id: uid(), createdAt: Date.now(), ...customer })).concat(d.customers);
+      persist();
+    }
+    return { added: pending.length, skipped };
   }
 
   /* ---------- 月度账单（按客户分组） ---------- */

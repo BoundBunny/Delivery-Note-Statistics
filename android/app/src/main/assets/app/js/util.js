@@ -11,6 +11,31 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+
+/* 拼音字典随应用打包，客户排序不需要联网。 */
+const customerNameCache = new Map();
+const customerNameCollator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+function isSuspiciousCustomerName(name) {
+  return /[\uFFFD\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(String(name || ''));
+}
+function customerNameInfo(name) {
+  const raw = String(name || '');
+  if (customerNameCache.has(raw)) return customerNameCache.get(raw);
+  const normalized = raw.normalize('NFKC').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().replace(/^[^A-Za-z0-9\u3400-\u9FFF]+/u, '');
+  const key = isSuspiciousCustomerName(raw) ? normalized.toLowerCase()
+    : window.pinyinPro.pinyin(normalized, { toneType: 'none', nonZh: 'consecutive' }).replace(/\s+/g, '').toLowerCase();
+  const letter = !isSuspiciousCustomerName(raw) && /^[a-z]/.test(key) ? key[0].toUpperCase() : '#';
+  const info = { letter, key };
+  customerNameCache.set(raw, info);
+  return info;
+}
+function compareCustomerNames(a, b) {
+  const x = customerNameInfo(a.name), y = customerNameInfo(b.name);
+  const rank = letter => letter === '#' ? 26 : letter.charCodeAt(0) - 65;
+  return rank(x.letter) - rank(y.letter) || customerNameCollator.compare(x.key, y.key)
+    || String(a.name).localeCompare(String(b.name), 'zh-CN') || String(a.id).localeCompare(String(b.id));
+}
 function fmtMoney(n) {
   n = Number(n) || 0;
   return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -19,6 +44,54 @@ function fmtNum(n) {
   n = Number(n) || 0;
   return (Math.round(n * 100) / 100).toLocaleString('zh-CN');
 }
+
+/* 界面长数字：金额始终完整显示，数量可缩写，不改动存储或计算。 */
+let numberFitFrame = null;
+function scheduleNumberFit() {
+  if (numberFitFrame !== null) return;
+  numberFitFrame = requestAnimationFrame(() => {
+    numberFitFrame = null;
+    $$('.number-value').forEach(el => {
+      el.style.fontSize = '';
+      const width = el.clientWidth;
+      if (width > 0 && el.scrollWidth > width) {
+        const size = parseFloat(getComputedStyle(el).fontSize);
+        el.style.fontSize = Math.max(10, Math.floor(size * width / el.scrollWidth * 10) / 10 - .5) + 'px';
+      }
+    });
+  });
+}
+function numberHtml(n, { money = false, prefix = '', suffix = '', label = '数值', maxLength = 12 } = {}) {
+  n = Number(n) || 0;
+  const finite = Number.isFinite(n);
+  const formatted = money ? fmtMoney(n)
+    : Math.abs(n) > Number.MAX_VALUE / 100 ? n.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : fmtNum(n);
+  const full = finite ? prefix + formatted + suffix : '数值超过了可计算范围，请检查单据中的数量和单价。';
+  scheduleNumberFit();
+  if (finite && (money || full.length <= maxLength)) return `<span class="number-value">${esc(full)}</span>`;
+  let short = '超出范围';
+  if (finite) {
+    const abs = Math.abs(n);
+    const unit = abs >= 1e12 && abs < 1e16 ? [1e12, '万亿']
+      : abs >= 1e8 && abs < 1e12 ? [1e8, '亿']
+      : abs >= 1e4 && abs < 1e8 ? [1e4, '万'] : null;
+    short = unit ? fmtNum(n / unit[0]) + unit[1] : formatted;
+    if (!unit || (prefix + short + suffix).length + 1 > maxLength) {
+      short = n.toExponential(1).replace('e+', 'e');
+    }
+    short = '≈' + prefix + short + suffix;
+  }
+  return `<button type="button" class="number-value number-detail-trigger" data-number-full="${esc(full)}" data-number-label="${esc(label)}" title="${esc(label + '：' + full)}" aria-label="${esc(label + '，点击查看完整数值')}">${esc(short)}</button>`;
+}
+window.addEventListener('resize', scheduleNumberFit);
+document.addEventListener('click', e => {
+  const trigger = e.target.closest('[data-number-full]');
+  if (!trigger) return;
+  e.preventDefault();
+  e.stopPropagation();
+  openSheet(`<div class="number-detail-value">${esc(trigger.dataset.numberFull)}</div>`, trigger.dataset.numberLabel || '完整数值');
+}, true);
+
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
 /* 日期工具：本地时区 */
@@ -66,6 +139,7 @@ function numToUpperInt(nStr) {
   while (nStr.length > 4) { groups.unshift(nStr.slice(-4)); nStr = nStr.slice(0, -4); }
   groups.unshift(nStr);
   let out = '';
+  let emptyGroup = false;
   const gLen = groups.length;
   groups.forEach((g, gi) => {
     const pow = gLen - 1 - gi;
@@ -81,23 +155,27 @@ function numToUpperInt(nStr) {
         zero = false;
       }
     }
-    if (gs) out += gs + CN_G[pow];
-    else if (out) out += '零';
+    if (gs) {
+      if (out && (emptyGroup || Number(g) < 1000)) out += '零';
+      out += gs + CN_G[pow];
+      emptyGroup = false;
+    } else if (out) emptyGroup = true;
   });
   return out.replace(/零+$/, '');
 }
 function amountUpper(amount) {
-  amount = Math.round((Number(amount) || 0) * 100) / 100;
-  if (amount === 0) return '零元整';
-  const neg = amount < 0; amount = Math.abs(amount);
-  const yuan = Math.floor(amount);
-  const jiao = Math.floor((amount * 10) % 10);
-  const fen = Math.round((amount * 100) % 10);
+  let cents = Math.round((Number(amount) || 0) * 100);
+  if (!Number.isFinite(cents) || Math.abs(cents) >= 1e14) return '金额超出大写转换范围';
+  if (cents === 0) return '零元整';
+  const neg = cents < 0; cents = Math.abs(cents);
+  const yuan = Math.floor(cents / 100);
+  const jiao = Math.floor(cents % 100 / 10);
+  const fen = cents % 10;
   let s = numToUpperInt(String(yuan)) + '元';
   if (jiao === 0 && fen === 0) s += '整';
   else {
     if (jiao > 0) s += CN_NUM[jiao] + '角';
-    else if (fen > 0) s += '零';
+    else if (fen > 0 && yuan > 0) s += '零';
     if (fen > 0) s += CN_NUM[fen] + '分';
   }
   return (neg ? '负' : '') + s;
@@ -198,6 +276,30 @@ function downloadBlob(filename, blob) {
 }
 
 /* 选择文件并读取为文本（Android桥 或 input[type=file]） */
+function assertImportText(text) {
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFD]/.test(text)) {
+    throw new Error('文件包含乱码或二进制内容，请使用原始 CSV 文本文件，勿直接导入 Excel 文件。');
+  }
+  return text.replace(/^\uFEFF/, '');
+}
+function decodeImportText(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if ((bytes[0] === 0x50 && bytes[1] === 0x4b) || (bytes[0] === 0xd0 && bytes[1] === 0xcf)
+      || (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+    throw new Error('请选择 CSV 或 JSON 文本文件；Excel 文件请先另存为 CSV。');
+  }
+  let text;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
+  else if (bytes[0] === 0xfe && bytes[1] === 0xff) text = new TextDecoder('utf-16be', { fatal: true }).decode(bytes);
+  else {
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch (err) {
+      if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) throw new Error('UTF-8 文件已损坏，请重新导出原始 CSV。');
+      text = new TextDecoder('gb18030', { fatal: true }).decode(bytes);
+    }
+  }
+  return assertImportText(text);
+}
 function pickFileAsText(accept) {
   return new Promise(resolve => {
     if (window.Android && window.Android.pickFile) {
@@ -205,7 +307,7 @@ function pickFileAsText(accept) {
       window.__fileCallbacks = window.__fileCallbacks || {};
       window.__fileCallbacks[cb] = (err, text) => {
         delete window.__fileCallbacks[cb];
-        if (err) { toast('读取文件失败', true); resolve(null); return; }
+        if (err) { if (err !== 'canceled') toast(err === 'read_error' ? '读取文件失败' : String(err), true); resolve(null); return; }
         resolve(text);
       };
       window.Android.pickFile(cb, accept || '*/*');
@@ -218,9 +320,12 @@ function pickFileAsText(accept) {
       const f = input.files && input.files[0];
       if (!f) { resolve(null); return; }
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
+      reader.onload = () => {
+        try { resolve(decodeImportText(reader.result)); }
+        catch (err) { toast(err.message || '文件格式或编码不正确', true); resolve(null); }
+      };
       reader.onerror = () => { toast('读取文件失败', true); resolve(null); };
-      reader.readAsText(f, 'utf-8');
+      reader.readAsArrayBuffer(f);
     };
     input.click();
   });

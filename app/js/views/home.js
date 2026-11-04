@@ -10,15 +10,30 @@ Views.home = {
     el.className = 'view active';
     const s = Store.getSettings();
     const today = todayStr();
-    const [wFrom, wTo] = weekRange();
     const [mFrom, mTo] = monthRange();
     const sum = (arr, fn) => arr.reduce((a, o) => a + (fn(o) || 0), 0);
     const todayOrders = Store.listOrders({ from: today, to: today });
     const todayAmt = sum(todayOrders, o => o.total);
     const monthOrders = Store.listOrders({ from: mFrom, to: mTo });
     const monthAmt = sum(monthOrders, o => o.total);
-    const weekAmt = sum(Store.listOrders({ from: wFrom, to: wTo }), o => o.total);
-    const recent = Store.listOrders().slice(0, 5);
+    const allOrders = Store.listOrders();
+    const recent = allOrders.slice(0, 5);
+    // 直接汇总本机已保存的单据；不同规格、单位分别统计，无需联网。
+    const productSales = new Map();
+    allOrders.forEach(o => (o.items || []).forEach(item => {
+      if (!item) return;
+      const name = String(item.name || '').trim();
+      const spec = String(item.spec || '').trim();
+      const unit = String(item.unit || '').trim();
+      const qty = Number(item.qty);
+      if (!name || !Number.isFinite(qty) || qty <= 0) return;
+      const key = JSON.stringify([name, spec, unit]);
+      if (!productSales.has(key)) productSales.set(key, { name, spec, unit, qty: 0 });
+      productSales.get(key).qty += qty;
+    }));
+    const productRank = Array.from(productSales.values())
+      .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, 'zh-CN'))
+      .slice(0, 3);
     const cnt = Store.countAll();
 
     const greeting = (() => {
@@ -38,17 +53,17 @@ Views.home = {
         <span class="sub">${esc(today)}</span>
       </div>
       <div class="pad" style="padding-top:4px">
-        <div class="stat-cards">
+        <div class="stat-cards${fmtMoney(todayAmt).length > 9 || fmtMoney(monthAmt).length > 9 ? ' home-summary-wide' : ''}">
           <div class="stat-card amber">
             <div class="sc-num">${todayOrders.length}</div>
             <div class="sc-lab">今日单据</div>
           </div>
           <div class="stat-card blue">
-            <div class="sc-num">${fmtMoney(todayAmt)}</div>
+            <div class="sc-num">${numberHtml(todayAmt, { money: true, label: '今日金额', maxLength: 9 })}</div>
             <div class="sc-lab">今日金额</div>
           </div>
           <div class="stat-card red">
-            <div class="sc-num">${fmtMoney(monthAmt)}</div>
+            <div class="sc-num">${numberHtml(monthAmt, { money: true, label: '本月金额', maxLength: 9 })}</div>
             <div class="sc-lab">本月金额</div>
           </div>
         </div>
@@ -57,19 +72,25 @@ Views.home = {
           开 送 货 单
         </button>
 
-        <div class="section-title">快捷入口</div>
-        <div class="card">
-          <div class="card-bd" style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;padding:12px">
-            ${[
-              ['orders', '单据', cnt.orders + ' 张'],
-              ['stats', '统计', weekAmt ? fmtMoney(weekAmt) : '本周'],
-            ].map(([go, t, sub]) => `
-              <button class="quick" data-go="${go}" style="display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:10px">
-                <span style="font-size:14px;font-weight:700">${t}</span>
-                <span style="font-size:11px;color:var(--muted)">${sub}</span>
-              </button>`).join('')}
-          </div>
-        </div>
+        <div class="section-title">商品销量排行 <span class="sales-rank-period">累计 · 前三</span></div>
+        <section class="card sales-rank" aria-label="商品销量前三">
+          ${productRank.length ? `
+          <ol class="sales-rank-list">
+            ${productRank.map((p, i) => `
+              <li class="sales-rank-row">
+                <span class="sales-rank-no" aria-hidden="true">${i + 1}</span>
+                <div class="sales-rank-main">
+                  <div class="sales-rank-name">${esc(p.name)}</div>
+                  ${p.spec ? `<div class="sales-rank-spec">${esc(p.spec)}</div>` : ''}
+                </div>
+                <div class="sales-rank-qty">${numberHtml(p.qty, { label: p.name + '累计销量（' + (p.unit || '件') + '）', maxLength: 10 })}<span class="sales-rank-unit">${esc(p.unit || '件')}</span></div>
+              </li>`).join('')}
+          </ol>` : `
+          <div class="empty sales-rank-empty">
+            <div class="em-t">暂无销售数据</div>
+            <div class="em-s">保存送货单后，自动显示销量前三的商品</div>
+          </div>`}
+        </section>
 
         <div class="section-title">基础资料</div>
         <div class="list">
@@ -98,9 +119,12 @@ Views.home = {
             <div class="list-item tri-strip" data-open="${o.id}">
               <div class="li-main">
                 <div class="li-title">${esc((o.customer && o.customer.name) || '散客')}</div>
-                <div class="li-sub">${esc(o.no)} · ${esc(o.date)} · ${(o.items || []).reduce((a, i) => a + (Number(i.qty) || 0), 0)} 件</div>
+                <div class="li-sub">${esc(o.no)} · ${esc(o.date)}</div>
               </div>
-              <div class="li-end"><div class="num">¥${fmtMoney(o.total)}</div></div>
+              <div class="li-end">
+                <div class="num">${numberHtml(o.total, { money: true, prefix: '¥', label: '单据金额' })}</div>
+                <div class="cap">${numberHtml((o.items || []).reduce((a, i) => a + (Number(i.qty) || 0), 0), { suffix: ' 件', label: '单据数量' })}</div>
+              </div>
               <span class="chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
             </div>`).join('')}
         </div>` : `

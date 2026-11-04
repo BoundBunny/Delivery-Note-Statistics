@@ -2,7 +2,7 @@
 android/.gradle/
 android/build/
 android/app/build/
-android/.idea/
+.idea/
 android/local.properties
 *.iml
 

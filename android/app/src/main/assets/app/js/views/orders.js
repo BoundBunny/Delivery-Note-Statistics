@@ -37,14 +37,14 @@ Views.orders = {
             <div class="li-sub">${esc(o.no)} · ${esc(o.date)}</div>
           </div>
           <div class="li-end">
-            <div class="num">¥${fmtMoney(o.total)}</div>
-            <div class="cap">${fmtNum(o.items.reduce((x, i) => x + (Number(i.qty) || 0), 0))} 件</div>
+            <div class="num">${numberHtml(o.total, { money: true, prefix: '¥', label: '单据金额' })}</div>
+            <div class="cap">${numberHtml(o.items.reduce((x, i) => x + (Number(i.qty) || 0), 0), { suffix: ' 件', label: '单据数量' })}</div>
           </div>
           <span class="chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
         </div>`).join('') : `
         <div class="empty"><div class="em-t">这个时间段没有单据</div><div class="em-s">换个筛选条件，或去开一张新单</div></div>`;
-      $('[data-role="sum"]', el).textContent = list.length
-        ? `共 ${list.length} 张 · ${fmtNum(qtySum)} 件 · ¥${fmtMoney(total)}`
+      $('[data-role="sum"]', el).innerHTML = list.length
+        ? `<span>共 ${list.length} 张</span><span>${numberHtml(qtySum, { suffix: ' 件', label: '数量合计' })}</span><span>${numberHtml(total, { money: true, prefix: '¥', label: '金额合计' })}</span>`
         : '暂无数据';
     };
 
@@ -65,7 +65,7 @@ Views.orders = {
         <span style="color:var(--muted)">至</span>
         <input type="date" data-role="to" value="${esc(st.to)}">
       </div>
-      <div style="margin:0 16px 10px;font-size:13px;color:var(--amber-deep);font-weight:600" data-role="sum"></div>
+      <div class="orders-summary" data-role="sum"></div>
       <div class="list" data-role="list"></div>`;
 
     apply();

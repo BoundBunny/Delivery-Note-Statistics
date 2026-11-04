@@ -114,7 +114,7 @@ Views.stats = {
           <div class="hb-row ${cls}">
             <div class="hb-name" title="${esc(name)}">${esc(name)}</div>
             <div class="hb-track"><div class="hb-fill" style="width:${Math.max(2, Math.round(v / max * 100))}%"></div></div>
-            <div class="hb-num">${fmtMoney(v)}</div>
+            <div class="hb-num">${numberHtml(v, { money: true, label: name + '销售额', maxLength: 9 })}</div>
           </div>`).join('')}</div>`;
       };
 
@@ -122,8 +122,8 @@ Views.stats = {
       $('[data-role="custRank"]', el).innerHTML = rankHtml(d.custRank, '');
       $('[data-role="prodRank"]', el).innerHTML = rankHtml(d.prodRank, 'blue');
       $('[data-role="c1"]', el).textContent = d.orders;
-      $('[data-role="c2"]', el).textContent = fmtNum(d.qtySum);
-      $('[data-role="c3"]', el).textContent = '¥' + fmtMoney(d.total);
+      $('[data-role="c2"]', el).innerHTML = numberHtml(d.qtySum, { label: '销售件数', maxLength: 9 });
+      $('[data-role="c3"]', el).innerHTML = numberHtml(d.total, { money: true, prefix: '¥', label: '销售额' });
       $('[data-role="c4"]', el).textContent = d.customers;
       $('[data-role="range"]', el).textContent = (st.from || '全部') + ' 至 ' + (st.to || '全部');
       const ym = st.billYm || todayStr().slice(0, 7);
@@ -133,7 +133,7 @@ Views.stats = {
         <div style="display:flex;align-items:center;gap:8px;padding:10px 2px;border-bottom:1px dashed var(--line)">
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;font-size:14px">${esc(g.name)}</div>
-            <div style="font-size:11px;color:var(--muted)">${g.orders.length} 单 · ${fmtMoney(g.total)}</div>
+            <div style="font-size:11px;color:var(--muted)">${g.orders.length} 单 · ${numberHtml(g.total, { money: true, label: g.name + '月度账单金额', maxLength: 10 })}</div>
           </div>
           <button class="btn btn-ghost btn-sm" data-bill-key="${esc(g.key)}" data-bill-name="${esc(g.name)}" data-bill-go="1">预览</button>
           <button class="btn btn-ghost btn-sm" data-bill-key="${esc(g.key)}" data-bill-name="${esc(g.name)}" data-bill-x="1">Excel</button>
@@ -155,7 +155,7 @@ Views.stats = {
         <input type="date" data-role="to" value="${esc(st.to)}">
       </div>
       <div style="margin:0 16px 10px;font-size:12px;color:var(--muted)" data-role="range"></div>
-      <div class="stat-cards" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-cards stats-summary">
         <div class="stat-card amber"><div class="sc-num" data-role="c1">0</div><div class="sc-lab">单据数</div></div>
         <div class="stat-card blue"><div class="sc-num" data-role="c2">0</div><div class="sc-lab">件数</div></div>
         <div class="stat-card red"><div class="sc-num" data-role="c3">¥0</div><div class="sc-lab">销售额</div></div>

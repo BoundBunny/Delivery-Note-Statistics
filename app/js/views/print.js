@@ -7,8 +7,14 @@ window.Views = window.Views || {};
 
 /* 保存图片：直接用 Canvas 绘制送货单（不依赖 SVG foreignObject，安卓 WebView 更稳） */
 function drawDocToCanvas(o, s) {
-  const W = 560;
   const padL = 30, padR = 30;
+  const measure = document.createElement('canvas').getContext('2d');
+  measure.font = '12px "SimSun","Microsoft YaHei",sans-serif';
+  const numericWidth = (key, money, min) => Math.max(min, ...o.items.map(it =>
+    Math.ceil(measure.measureText(money ? fmtMoney(it[key]) : fmtNum(it[key])).width) + 14));
+  // 列宽由完整数值决定；画布覆盖全部列，金额不压缩、不截断。
+  const cols = [30, 196, 40, numericWidth('qty', false, 60), numericWidth('price', true, 100), numericWidth('amount', true, 112), 80];
+  const W = padL + cols.reduce((a, b) => a + b, 0) + padR;
   const innerW = W - padL - padR;
   const scale = 2;
 
@@ -19,16 +25,22 @@ function drawDocToCanvas(o, s) {
   const rows = o.items.slice();
   while (rows.length < 8) rows.push(null);
   const ROW_H = 27;
-  const tableTop = 196; // 表头开始 y（随上方内容累加，见下）
   // 预估：抬头(若公司名) + 标题 + NO + 元信息
   let yTop = 16;
-  if (s.company) yTop += 24 + 16;
+  if (s.company) yTop += 18 + 16;
   yTop += 46; // 送货单 标题
   yTop += 24; // NO
-  const metaTop = yTop;
   yTop += 3 * 24 + 8; // 元信息 3 行
   const headTop = yTop;
-  const H = yTop + 24 + 8 * ROW_H + 30 + 26 + 34 + 30;
+  const note = o.note || s.note || '以上货物请当面核对，如有质量问题请在收货后3天内通知本公司，逾期恕不负责。';
+  const lines = [];
+  let line = '';
+  for (const ch of '注：' + note) {
+    if (measure.measureText(line + ch).width > innerW - 20 && line) { lines.push(line); line = ch; }
+    else line += ch;
+  }
+  if (line) lines.push(line);
+  const H = yTop + 24 + rows.length * ROW_H + 12 + 22 + 26 + lines.length * 18 + 8 + 44;
 
   const canvas = document.createElement('canvas');
   canvas.width = W * scale; canvas.height = H * scale;
@@ -83,7 +95,7 @@ function drawDocToCanvas(o, s) {
       ctx.fillText(label, cx, ry);
       ctx.fillStyle = '#222';
       ctx.font = 'bold 12px "SimSun","Microsoft YaHei",sans-serif';
-      ctx.fillText(val, cx + lw + 2, ry);
+      ctx.fillText(val, cx + lw + 2, ry, colW - lw - 8);
       ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
     };
     drawCell(row[0], row[1], padL);
@@ -92,7 +104,6 @@ function drawDocToCanvas(o, s) {
   y += 3 * 24 + 8;
 
   // 表头
-  const cols = [30, 196, 40, 48, 60, 70, 56]; // 序号 产品名称(含规格) 单位 数量 单价 金额 备注（合计500，左右各留30边距）
   const colX = [];
   let cx = padL;
   cols.forEach((cw, i) => { colX.push(cx); cx += cw; });
@@ -110,9 +121,9 @@ function drawDocToCanvas(o, s) {
   heads.forEach((h, i) => ctx.fillText(h, colX[i] + cols[i] / 2, y + 12));
   y += 24;
 
-  // 明细 8 行
+  // 至少 8 行；明细较多时扩展图片高度。
   ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < rows.length; i++) {
     const it = rows[i];
     ctx.strokeRect(padL, y, tableRight - padL, ROW_H);
     if (it) {
@@ -120,14 +131,14 @@ function drawDocToCanvas(o, s) {
       ctx.textAlign = 'center';
       ctx.fillText(String(i + 1), colX[0] + cols[0] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
-      ctx.fillText(fmt(it.name), colX[1] + 4, y + ROW_H / 2);
+      ctx.fillText(fmt(it.name), colX[1] + 4, y + ROW_H / 2, cols[1] - 8);
       ctx.textAlign = 'center';
-      ctx.fillText(fmt(it.unit), colX[2] + cols[2] / 2, y + ROW_H / 2);
-      ctx.fillText(fmt(it.qty), colX[3] + cols[3] / 2, y + ROW_H / 2);
-      ctx.fillText(fmt(it.price), colX[4] + cols[4] / 2, y + ROW_H / 2);
-      ctx.fillText(fmt(it.amount), colX[5] + cols[5] / 2, y + ROW_H / 2);
+      ctx.fillText(fmt(it.unit), colX[2] + cols[2] / 2, y + ROW_H / 2, cols[2] - 8);
+      ctx.fillText(fmtNum(it.qty), colX[3] + cols[3] / 2, y + ROW_H / 2);
+      ctx.fillText(fmtMoney(it.price), colX[4] + cols[4] / 2, y + ROW_H / 2);
+      ctx.fillText(fmtMoney(it.amount), colX[5] + cols[5] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
-      ctx.fillText(fmt(it.remark), colX[6] + 4, y + ROW_H / 2);
+      ctx.fillText(fmt(it.remark), colX[6] + 4, y + ROW_H / 2, cols[6] - 8);
     }
     y += ROW_H;
   }
@@ -146,23 +157,16 @@ function drawDocToCanvas(o, s) {
   ctx.textAlign = 'left';
   ctx.font = '13px "SimSun","Microsoft YaHei",sans-serif';
   ctx.fillText('金额合计（大写）：' + upper(o.total), padL, y);
+  y += 22;
   ctx.textAlign = 'right';
   ctx.font = 'bold 13px "SimSun","Microsoft YaHei",sans-serif';
   ctx.fillText('小写金额 ¥' + fmtMoney(o.total), tableRight, y);
   y += 26;
 
   // 备注（自动换行）
-  const note = o.note || s.note || '以上货物请当面核对，如有质量问题请在收货后3天内通知本公司，逾期恕不负责。';
   ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
   ctx.fillStyle = '#333';
   ctx.textAlign = 'left';
-  const lines = [];
-  let line = '';
-  for (const ch of '注：' + note) {
-    if (ctx.measureText(line + ch).width > innerW - 20 && line) { lines.push(line); line = ch; }
-    else line += ch;
-  }
-  if (line) lines.push(line);
   lines.forEach((ln, i) => ctx.fillText(ln, padL, y + 6 + i * 18));
   y += lines.length * 18 + 8;
 
@@ -236,12 +240,12 @@ Views.print = {
                   <td>${i + 1}</td>
                   <td>${esc(it.name)}</td>
                   <td>${esc(it.unit || '')}</td>
-                  <td>${fmtNum(it.qty)}</td>
-                  <td>${fmtMoney(it.price)}</td>
-                  <td>${fmtMoney(it.amount)}</td>
+                  <td class="doc-num">${fmtNum(it.qty)}</td>
+                  <td class="doc-num">${fmtMoney(it.price)}</td>
+                  <td class="doc-num">${fmtMoney(it.amount)}</td>
                   <td>${esc(it.remark || '')}</td>
                 </tr>` : `
-                <tr><td>${i + 1}</td><td colspan="7"></td></tr>`).join('')}
+                <tr><td>${i + 1}</td><td colspan="6"></td></tr>`).join('')}
             </tbody>
           </table>
           <div class="d-total">
@@ -269,7 +273,10 @@ Views.print = {
           <button class="btn btn-blue btn-sm" data-act="print" style="flex:1"><svg viewBox="0 0 24 24"><path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>打印 / 存PDF</button>
         </div>
       </div>
-      <div class="doc-page">${docHtml}</div>
+      <div class="hint document-scroll-hint">左右滑动查看完整单据</div>
+      <div class="document-scroll print-document-scroll" role="region" aria-label="送货单打印预览，可左右滑动" tabindex="0">
+        <div class="doc-page">${docHtml}</div>
+      </div>
       <div class="hint" style="text-align:center;margin:10px 0 16px">A4 竖版三联送货单 · 打印时选择「另存为 PDF」即可保存电子档</div>`;
 
     el.addEventListener('click', e => {

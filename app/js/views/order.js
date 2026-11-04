@@ -348,6 +348,8 @@ Views.order = {
         <button class="icbtn" data-act="print"><svg viewBox="0 0 24 24"><path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg></button>
       </div>
       <div class="pad">
+        <div class="hint document-scroll-hint">左右滑动查看完整单据</div>
+        <div class="document-scroll doc-detail-scroll" role="region" aria-label="送货单详情，可左右滑动" tabindex="0">
         <div class="doc-card tri-strip">
           <div class="dc-head">
             <span class="dc-no">${esc(o.no)}</span>
@@ -377,9 +379,11 @@ Views.order = {
             ${o.note ? `<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.6">${esc(o.note)}</div>` : ''}
           </div>
           <div class="dc-foot">
-            <span class="f-lab">共 ${fmtNum(qtySum)} 件 · ${esc(amountUpper(o.total))}</span>
+            <span class="f-lab">共 <span class="doc-quantity">${fmtNum(qtySum)}</span> 件</span>
+            <span class="f-lab">金额大写：${esc(amountUpper(o.total))}</span>
             <span class="f-num">¥${fmtMoney(o.total)}</span>
           </div>
+        </div>
         </div>
 
         <div class="btn-row">

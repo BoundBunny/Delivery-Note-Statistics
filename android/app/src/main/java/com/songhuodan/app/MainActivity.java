@@ -56,6 +56,8 @@ public class MainActivity extends Activity {
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
         webView.setBackgroundColor(0xFFF4F2EC);
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setHorizontalScrollBarEnabled(false);
+        webView.setVerticalScrollBarEnabled(false);
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, String url) {
@@ -83,20 +85,23 @@ public class MainActivity extends Activity {
             final Uri uri = data.getData();
             new Thread(() -> {
                 String text = null;
+                String error = null;
                 try (InputStream is = getContentResolver().openInputStream(uri)) {
                     ByteArrayOutputStream bos = new ByteArrayOutputStream();
                     byte[] buf = new byte[8192];
                     int n;
                     while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-                    text = new String(bos.toByteArray(), "UTF-8");
+                    text = ImportTextDecoder.decode(bos.toByteArray());
                 } catch (Exception e) {
                     text = null;
+                    error = e.getMessage() == null ? "读取文件失败" : e.getMessage();
                 }
                 final String result = text;
+                final String readError = error;
                 runOnUiThread(() -> {
                     if (cb == null) return;
                     String js = "window.__fileCallbacks && window.__fileCallbacks['" + cb + "']("
-                            + (result == null ? "'read_error'" : "null") + ","
+                            + (result == null ? jsQuote(readError == null ? "读取文件失败" : readError) : "null") + ","
                             + (result == null ? "null" : jsQuote(result)) + ")";
                     webView.evaluateJavascript(js, null);
                 });
@@ -151,6 +156,11 @@ public class MainActivity extends Activity {
             pendingPickId = callbackId;
             Intent i = new Intent(Intent.ACTION_GET_CONTENT);
             i.setType("*/*");
+            if (accept != null && accept.contains(".csv")) {
+                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel", "application/octet-stream"});
+            } else if (accept != null && accept.contains(".json")) {
+                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"});
+            }
             i.addCategory(Intent.CATEGORY_OPENABLE);
             try {
                 startActivityForResult(Intent.createChooser(i, "选择文件"), 1001);
