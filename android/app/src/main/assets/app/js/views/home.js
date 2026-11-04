@@ -34,7 +34,37 @@ Views.home = {
     const productRank = Array.from(productSales.values())
       .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, 'zh-CN'))
       .slice(0, 3);
-    const cnt = Store.countAll();
+    const crown = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 5 3 4-7 4 7 5-3-2 12H5L3 7zm3 14h12" fill="currentColor"/></svg>';
+    const productBadge = product => {
+      const initials = product ? Array.from(product.name.replace(/\s+/g, '').toUpperCase()).slice(0, 2).join('') : '待';
+      return `<svg viewBox="0 0 88 96" aria-hidden="true">
+        <path d="M44 5 80 27 72 74 44 91 16 74 8 27Z" fill="currentColor" opacity=".14"/>
+        <path d="M44 5 80 27 72 74 44 91 16 74 8 27Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
+        <path d="M44 12 73 30 66 70 44 83 22 70 15 30Z" fill="none" stroke="currentColor" opacity=".35" stroke-width="1"/>
+        <text class="podium-monogram" x="44" y="47" text-anchor="middle">${esc(initials)}</text>
+        <path d="m36 64 8-4 8 4v9l-8 4-8-4zm0 0 8 4 8-4m-8 4v9" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".8"/>
+      </svg>`;
+    };
+    const podiumItem = rank => {
+      const product = productRank[rank - 1];
+      const place = ['冠军', '亚军', '季军'][rank - 1];
+      const identity = product ? `
+        <button type="button" class="podium-info" data-podium-product="${rank}" aria-label="第${rank}名，${esc(product.name)}${product.spec ? '，' + esc(product.spec) : ''}，查看完整商品信息">
+          <span class="podium-product-badge">${productBadge(product)}</span>
+          <span class="podium-product-name">${esc(product.name)}</span>
+          <span class="podium-product-spec">${esc(product.spec)}</span>
+        </button>` : `
+        <div class="podium-info">
+          <span class="podium-product-badge">${productBadge(null)}</span>
+          <span class="podium-product-name">虚位以待</span>
+          <span class="podium-product-spec">暂无上榜商品</span>
+        </div>`;
+      return `<li class="podium-place podium-place-${rank}${product ? '' : ' podium-place-empty'}"${product ? ' data-product-rank="' + rank + '"' : ''} value="${rank}" aria-label="第${rank}名${product ? '' : '，暂无上榜商品'}">
+        ${identity}
+        <div class="podium-product-qty">${product ? numberHtml(product.qty, { label: product.name + '累计销量（' + (product.unit || '件') + '）', maxLength: 8 }) + `<span class="podium-product-unit" title="${esc(product.unit || '件')}">${esc(product.unit || '件')}</span>` : '<span class="podium-pending-qty">—</span>'}</div>
+        <div class="podium-stage" aria-hidden="true">${crown}<span class="podium-place-number">${rank}</span><span class="podium-place-label">${place}</span></div>
+      </li>`;
+    };
 
     const greeting = (() => {
       const h = new Date().getHours();
@@ -49,6 +79,7 @@ Views.home = {
 
     el.innerHTML = `
       <div class="topbar">
+        <img class="brand-icon" src="assets/brand/dns-icon.svg" width="32" height="32" alt="DNS 送货单统计">
         <h1>${esc(greeting)}，${esc(name)}</h1>
         <span class="sub">${esc(today)}</span>
       </div>
@@ -68,49 +99,22 @@ Views.home = {
           </div>
         </div>
 
-        <button class="btn btn-primary btn-block" style="min-height:52px;font-size:16px;border-radius:14px;box-shadow:0 4px 14px rgba(217,154,43,.4)" data-go="order">
+        <button class="btn btn-primary btn-block home-create-order" data-go="order">
           开 送 货 单
         </button>
 
         <div class="section-title">商品销量排行 <span class="sales-rank-period">累计 · 前三</span></div>
         <section class="card sales-rank" aria-label="商品销量前三">
           ${productRank.length ? `
-          <ol class="sales-rank-list">
-            ${productRank.map((p, i) => `
-              <li class="sales-rank-row">
-                <span class="sales-rank-no" aria-hidden="true">${i + 1}</span>
-                <div class="sales-rank-main">
-                  <div class="sales-rank-name">${esc(p.name)}</div>
-                  ${p.spec ? `<div class="sales-rank-spec">${esc(p.spec)}</div>` : ''}
-                </div>
-                <div class="sales-rank-qty">${numberHtml(p.qty, { label: p.name + '累计销量（' + (p.unit || '件') + '）', maxLength: 10 })}<span class="sales-rank-unit">${esc(p.unit || '件')}</span></div>
-              </li>`).join('')}
+          <ol class="sales-podium" role="list" aria-label="按累计销售数量排名，冠军居中">
+            ${[1, 2, 3].map(podiumItem).join('')}
           </ol>` : `
           <div class="empty sales-rank-empty">
+            <span class="podium-empty-crown" aria-hidden="true">${crown}</span>
             <div class="em-t">暂无销售数据</div>
             <div class="em-s">保存送货单后，自动显示销量前三的商品</div>
           </div>`}
         </section>
-
-        <div class="section-title">基础资料</div>
-        <div class="list">
-          <div class="list-item" data-go="customers">
-            <div class="li-main">
-              <div class="li-title">客户管理</div>
-              <div class="li-sub">维护客户名称、电话、地址</div>
-            </div>
-            <div class="li-end"><div class="num" style="font-size:13px;color:var(--muted)">${cnt.customers} 个</div></div>
-            <span class="chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
-          </div>
-          <div class="list-item" data-go="products">
-            <div class="li-main">
-              <div class="li-title">商品管理</div>
-              <div class="li-sub">维护商品名称、规格、单价</div>
-            </div>
-            <div class="li-end"><div class="num" style="font-size:13px;color:var(--muted)">${cnt.products} 个</div></div>
-            <span class="chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
-          </div>
-        </div>
 
         <div class="section-title">最近单据 <span style="margin-left:auto;letter-spacing:0" data-go="orders" style="cursor:pointer">全部 ›</span></div>
         ${recent.length ? `
@@ -135,6 +139,20 @@ Views.home = {
       </div>`;
 
     el.addEventListener('click', e => {
+      const podiumProduct = e.target.closest('[data-podium-product]');
+      if (podiumProduct) {
+        const rank = Number(podiumProduct.dataset.podiumProduct);
+        const product = productRank[rank - 1];
+        if (!product) return;
+        const quantity = Number.isFinite(product.qty) ? product.qty.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : '数值超出范围';
+        openSheet(`<div class="podium-product-detail">
+          <div class="podium-detail-rank">销量第 ${rank} 名 · 累计销售数量</div>
+          <div class="podium-detail-name">${esc(product.name)}</div>
+          ${product.spec ? `<div class="podium-detail-spec">规格：${esc(product.spec)}</div>` : ''}
+          <div class="podium-detail-qty">${esc(quantity)} <span>${esc(product.unit || '件')}</span></div>
+        </div>`, '上榜商品');
+        return;
+      }
       const go = e.target.closest('[data-go]');
       if (go) { location.hash = '#/' + go.dataset.go; return; }
       const open = e.target.closest('[data-open]');

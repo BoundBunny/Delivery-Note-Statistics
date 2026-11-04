@@ -109,7 +109,7 @@ function drawDocToCanvas(o, s) {
   cols.forEach((cw, i) => { colX.push(cx); cx += cw; });
   const tableRight = padL + cols.reduce((a, b) => a + b, 0);
 
-  ctx.fillStyle = '#f5f0e6';
+  ctx.fillStyle = '#F1F2F5';
   ctx.fillRect(padL, y, tableRight - padL, 24);
   ctx.strokeStyle = '#999';
   ctx.lineWidth = 1;
@@ -268,7 +268,7 @@ Views.print = {
           <h1>打印预览</h1>
           <button class="icbtn" data-act="share"><svg viewBox="0 0 24 24"><path d="M12 3v13m0-13 4 4m-4-4-4 4M5 21h14"/></svg></button>
         </div>
-        <div style="display:flex;gap:8px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--line)">
+        <div style="display:flex;gap:8px;padding:10px 16px;background:var(--paper);border-bottom:1px solid var(--line)">
           <button class="btn btn-primary btn-sm" data-act="save-img" style="flex:1"><svg viewBox="0 0 24 24"><path d="M4 17v3h16v-3M12 3v12m0 0 4-4m-4 4-4-4"/></svg>保存图片</button>
           <button class="btn btn-blue btn-sm" data-act="print" style="flex:1"><svg viewBox="0 0 24 24"><path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>打印 / 存PDF</button>
         </div>

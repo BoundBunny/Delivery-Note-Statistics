@@ -9,12 +9,14 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.View;
+import android.view.HapticFeedbackConstants;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -36,6 +38,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private String pendingPickId = null;
+    private long lastHapticAt = 0;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -54,7 +57,7 @@ public class MainActivity extends Activity {
         ws.setSupportZoom(false);
         ws.setMediaPlaybackRequiresUserGesture(false);
         ws.setCacheMode(WebSettings.LOAD_DEFAULT);
-        webView.setBackgroundColor(0xFFF4F2EC);
+        webView.setBackgroundColor(0xFFF5F5F7);
         webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
         webView.setHorizontalScrollBarEnabled(false);
         webView.setVerticalScrollBarEnabled(false);
@@ -116,6 +119,17 @@ public class MainActivity extends Activity {
     }
 
     private class AndroidBridge {
+
+        /* 使用系统触感设置，不申请额外震动权限，也不强制覆盖用户偏好。 */
+        @JavascriptInterface
+        public void tapFeedback() {
+            runOnUiThread(() -> {
+                long now = SystemClock.uptimeMillis();
+                if (now - lastHapticAt < 65 || !webView.hasWindowFocus()) return;
+                lastHapticAt = now;
+                webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            });
+        }
 
         /* 保存文件到系统「下载/送货单统计」 */
         @JavascriptInterface

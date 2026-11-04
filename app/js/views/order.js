@@ -94,7 +94,7 @@ Views.order = {
             <div class="ir-line ir-line2">
               <input class="ir-qty" data-f="qty" type="number" inputmode="decimal" placeholder="数量" value="${it.qty}">
               <input class="ir-price" data-f="price" type="number" inputmode="decimal" placeholder="单价" value="${it.price}">
-              <div class="ir-amount" data-role="amount" style="display:flex;align-items:center;justify-content:flex-end;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px;padding:0 4px;color:var(--red)">${fmtMoney(it.amount)}</div>
+              <div class="ir-amount" data-role="amount" style="display:flex;align-items:center;justify-content:flex-end;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px;padding:0 4px;color:var(--ink)">${fmtMoney(it.amount)}</div>
             </div>
           </div>
           <button class="ir-del" data-act="del-row" aria-label="删除该行"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>

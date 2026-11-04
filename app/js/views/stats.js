@@ -5,8 +5,8 @@
 window.Views = window.Views || {};
 
 /* 月度账单辅助 */
-function billTitleFor(customerName, ym) {
-  const s = Store.getSettings();
+function billTitleFor(customerName, ym, settings) {
+  const s = settings || Store.getSettings();
   const tpl = s.billTitle || '{year}年{customer}与{company}{month}月账单';
   const y = ym.slice(0, 4), m = String(+ym.slice(5, 7));
   let out = tpl.replace(/\{year\}/g, y).replace(/\{month\}/g, m).replace(/\{customer\}/g, customerName);
@@ -173,7 +173,7 @@ Views.stats = {
           </div>
         </div>
         <div data-role="billList"></div>
-        <div class="hint" style="padding:8px 2px 0;font-size:11px;color:var(--muted)">账单标题在「设置」里按模板生成，可自定义为：{year}年{customer}与{company}{month}月账单</div>
+        <div class="hint" style="padding:8px 2px 0;font-size:11px;color:var(--muted)">账单标题可在「设置 → 公司/店铺信息」里修改，年份、月份和客户名称会自动填写。</div>
       </div>
       <div style="height:8px"></div>`;
 

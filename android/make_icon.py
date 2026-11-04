@@ -1,45 +1,126 @@
-# -*- coding: utf-8 -*-
-"""生成送货单统计应用图标（琥珀底 + 白色单据图形）"""
-from PIL import Image, ImageDraw
+"""Install approved DNS artwork in Android and the offline web application.
 
-sizes = {'mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192}
-base = r"C:\Users\miaoj\Desktop\送货单统计\android\app\src\main\res"
+Run with Python 3 from any directory; no third-party packages are required.
+The approved artwork lives in design/dns-logo-v1 and is not redrawn here.
+"""
 
-for name, px in sizes.items():
-    img = Image.new('RGBA', (px, px), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    # 圆角方形琥珀底（带轻微渐变）
-    r = int(px * 0.22)
-    top = (217, 154, 43, 255)
-    bottom = (169, 110, 22, 255)
-    # 逐行画渐变
-    for y in range(px):
-        t = y / px
-        col = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,)
-        d.rounded_rectangle([0, y, px, y + 1], radius=0, fill=col)
-    # 再套圆角遮罩
-    mask = Image.new('L', (px, px), 0)
-    md = ImageDraw.Draw(mask)
-    md.rounded_rectangle([0, 0, px - 1, px - 1], radius=r, fill=255)
-    img.putalpha(mask)
+from pathlib import Path
+import re
+import shutil
+import struct
+import xml.etree.ElementTree as ET
 
-    # 白色单据：圆角矩形 + 折角 + 三行文字线 + 对勾
-    u = px / 48.0  # 以48为基准
-    doc_x0, doc_y0, doc_x1, doc_y1 = 12 * u, 10 * u, 36 * u, 38 * u
-    doc = Image.new('RGBA', (px, px), (0, 0, 0, 0))
-    dd = ImageDraw.Draw(doc)
-    dd.rounded_rectangle([doc_x0, doc_y0, doc_x1, doc_y1], radius=4 * u, fill=(255, 255, 255, 255))
-    # 三行文字线
-    for i in range(3):
-        ly = (15 + i * 5.5) * u
-        dd.rounded_rectangle([doc_x0 + 4 * u, ly, doc_x1 - 7 * u, ly + 2.2 * u], radius=1.1 * u, fill=(217, 154, 43, 255))
-    # 对勾（蓝色）
-    ck = 3.2 * u
-    dd.line([(doc_x0 + 5 * u, 27 * u), (doc_x0 + 8.5 * u, 30 * u), (doc_x1 - 6 * u, 22.5 * u)], fill=(62, 111, 168, 255), width=int(ck), joint='curve')
-    img = Image.alpha_composite(img, doc)
 
-    out = rf"{base}\mipmap-{name}\ic_launcher.png"
-    import os
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    img.save(out, 'PNG')
-    print(name, px, '->', out)
+ANDROID = Path(__file__).resolve().parent
+ARTWORK = ANDROID / "design" / "dns-logo-v1"
+RES = ANDROID / "app" / "src" / "main" / "res"
+WEB_APPS = (ANDROID.parent / "app", ANDROID / "app" / "src" / "main" / "assets" / "app")
+DENSITIES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+ANDROID_NS = "http://schemas.android.com/apk/res/android"
+ET.register_namespace("android", ANDROID_NS)
+
+
+def attribute(name):
+    return f"{{{ANDROID_NS}}}{name}"
+
+
+def rectangle_path(element):
+    x, y, width, height = (float(element.get(name, "0")) for name in ("x", "y", "width", "height"))
+    radius = min(float(element.get("rx", "0")), width / 2, height / 2)
+    right, bottom = x + width, y + height
+    return (
+        f"M{x + radius:g},{y:g} H{right - radius:g} "
+        f"A{radius:g},{radius:g} 0 0 1 {right:g},{y + radius:g} V{bottom - radius:g} "
+        f"A{radius:g},{radius:g} 0 0 1 {right - radius:g},{bottom:g} H{x + radius:g} "
+        f"A{radius:g},{radius:g} 0 0 1 {x:g},{bottom - radius:g} V{y + radius:g} "
+        f"A{radius:g},{radius:g} 0 0 1 {x + radius:g},{y:g} Z"
+    )
+
+
+def adaptive_foreground():
+    source = ET.parse(ARTWORK / "dns-icon.svg").getroot()
+    vector = ET.Element("vector", {
+        attribute("width"): "108dp", attribute("height"): "108dp",
+        attribute("viewportWidth"): "768", attribute("viewportHeight"): "768",
+    })
+    # Center approved 512-unit artwork inside the 768-unit adaptive layer.
+    # The launcher supplies the amber background and its own outer mask.
+    content = ET.SubElement(vector, "group", {attribute("translateX"): "128", attribute("translateY"): "128"})
+    removed_background = False
+    for element in source:
+        tag = element.tag.rsplit("}", 1)[-1]
+        if tag == "title":
+            continue
+        if tag == "rect" and element.get("width") == "496" and element.get("height") == "496":
+            removed_background = True
+            continue
+        if tag not in ("rect", "path"):
+            raise ValueError(f"Unsupported artwork element: {tag}")
+        parent = content
+        transform = element.get("transform", "")
+        transforms = re.findall(r"(translate|scale)\(([^)]*)\)", transform)
+        if re.sub(r"(translate|scale)\([^)]*\)", "", transform).strip():
+            raise ValueError(f"Unsupported artwork transform: {transform}")
+        for kind, arguments in transforms:
+            values = arguments.replace(",", " ").split()
+            if len(values) not in (1, 2):
+                raise ValueError(f"Invalid artwork transform: {transform}")
+            second = values[1] if len(values) == 2 else (values[0] if kind == "scale" else "0")
+            parent = ET.SubElement(parent, "group", {
+                attribute(f"{kind}X"): values[0], attribute(f"{kind}Y"): second,
+            })
+        attrs = {
+            attribute("pathData"): rectangle_path(element) if tag == "rect" else element.attrib["d"],
+            attribute("fillColor"): "#00000000" if element.get("fill") == "none" else element.get("fill", "#000000"),
+        }
+        if element.get("fill-rule") == "evenodd":
+            attrs[attribute("fillType")] = "evenOdd"
+        for svg_name, android_name in (
+            ("stroke", "strokeColor"), ("stroke-width", "strokeWidth"),
+            ("stroke-linecap", "strokeLineCap"), ("stroke-linejoin", "strokeLineJoin"),
+        ):
+            if svg_name in element.attrib:
+                attrs[attribute(android_name)] = element.attrib[svg_name]
+        ET.SubElement(parent, "path", attrs)
+    if not removed_background:
+        raise ValueError("The approved logo background was not found.")
+    return vector
+
+
+def write_xml(path, root):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ET.indent(root, space="    ")
+    ET.ElementTree(root).write(path, encoding="utf-8", xml_declaration=True)
+
+
+def main():
+    foreground = adaptive_foreground()
+    for size in DENSITIES.values():
+        data = (ARTWORK / f"dns-icon-{size}.png").read_bytes()
+        if data[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", data[16:24]) != (size, size):
+            raise ValueError(f"Invalid approved icon export: {size}")
+    for density, size in DENSITIES.items():
+        destination = RES / f"mipmap-{density}" / "ic_launcher.png"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ARTWORK / f"dns-icon-{size}.png", destination)
+        print(f"Android {density}: {size} x {size}")
+
+    write_xml(RES / "drawable" / "ic_launcher_foreground.xml", foreground)
+    colors = ET.Element("resources")
+    ET.SubElement(colors, "color", {"name": "ic_launcher_background"}).text = "#D99A2B"
+    write_xml(RES / "values" / "brand_colors.xml", colors)
+    adaptive = ET.Element("adaptive-icon")
+    ET.SubElement(adaptive, "background", {attribute("drawable"): "@color/ic_launcher_background"})
+    ET.SubElement(adaptive, "foreground", {attribute("drawable"): "@drawable/ic_launcher_foreground"})
+    write_xml(RES / "mipmap-anydpi-v26" / "ic_launcher.xml", adaptive)
+
+    for app in WEB_APPS:
+        brand = app / "assets" / "brand"
+        brand.mkdir(parents=True, exist_ok=True)
+        for filename in ("dns-icon.svg", "dns-icon-48.png", "dns-icon-192.png", "dns-logo.svg", "dns-logo.png"):
+            shutil.copyfile(ARTWORK / filename, brand / filename)
+        print(f"Web brand assets: {brand}")
+
+
+if __name__ == "__main__":
+    main()

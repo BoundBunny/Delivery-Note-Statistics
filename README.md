@@ -1,4 +1,7 @@
-# DeliveryNote · 送货单统计
+# DNS · 送货单统计
+
+![DNS · 送货单统计](app/assets/brand/dns-logo.svg)
+
 一个在校大学生应家里需要利用课余时间使用ai制作的一款小软件，下面是简介：
 
 一个**完全本地离线**运行的送货单管理与月度账单统计工具，提供 Android App（APK 安装包）和网页版两种形态，数据全部保存在本机，不依赖任何服务器与联网服务。
@@ -46,6 +49,12 @@ android/                 Android WebView 壳工程（Java）
 客户 / 商品导入请使用带名称表头的 CSV 文本，支持 UTF-8、GBK / GB18030 及带 BOM 的 UTF-16。Excel 的 `.xlsx` / `.xls` 文件需要先另存为 CSV，不能直接作为 CSV 导入；格式或编码异常时会拒绝导入，避免生成乱码记录。已含 `�` 的旧名称需核对原始文件或备份后修正，不会被自动删除。
 
 ## 打包 APK（开发指南）
+
+### 更新品牌图标
+
+Logo 源文件位于 `android/design/dns-logo-v1/`。运行 `python android/make_icon.py`，可同步 Android 各密度启动图标、自适应图标，以及网页版和 Android 内置网页的品牌图片。图标直接采用已确认的设计稿，不重新绘制。
+
+### 构建安装包
 
 环境要求：JDK 17、Android SDK、Gradle 8.13。
 
