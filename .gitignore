@@ -12,3 +12,6 @@ Thumbs.db
 
 # 临时文件
 *.tmp
+
+# ACL 诊断恢复产物（本地生成，不提交）
+acl-recovery/

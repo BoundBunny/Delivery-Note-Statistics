@@ -21,7 +21,7 @@ Views.order = {
       id: null, no: Store.nextOrderNo(todayStr()), date: todayStr(),
       operator: s.operator || '', note: s.note || '',
       customer: null,
-      items: [{ pid: null, name: '', spec: '', unit: '', qty: '', price: '', amount: 0, remark: '' }],
+      items: [],
     };
     window.__orderDraft = null;
     // 复制新增时重生成单号
@@ -36,30 +36,28 @@ Views.order = {
         <button class="btn btn-ghost btn-sm" data-act="save">保存</button>
       </div>
       <div class="pad">
-        <div class="order-meta">
-          <div class="field-row">
-            <div class="field"><label class="lab">送货日期</label><input type="date" data-f="date" value="${esc(draft.date)}"></div>
-            <div class="field"><label class="lab">单号</label><div style="height:42px;display:flex;align-items:center;font-weight:600;font-size:14px;color:var(--amber-deep);overflow:hidden;white-space:nowrap">${esc(draft.no)}</div></div>
+        <div class="order-meta order-meta-cust">
+          <div class="om-fields">
+            <div class="field-row">
+              <div class="field"><label class="lab">送货日期</label><input type="date" data-f="date" value="${esc(draft.date)}"></div>
+              <div class="field"><label class="lab">单号</label><div style="height:42px;display:flex;align-items:center;font-weight:600;font-size:14px;color:var(--amber-deep);overflow:hidden;white-space:nowrap">${esc(draft.no)}</div></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label class="lab">制单人</label><input data-f="operator" value="${esc(draft.operator)}" placeholder="选填"></div>
+            </div>
           </div>
-          <div class="field-row">
-            <div class="field"><label class="lab">制单人</label><input data-f="operator" value="${esc(draft.operator)}" placeholder="选填"></div>
+          <div class="cust-pick om-cust" data-act="pick-cust" role="button" tabindex="0" aria-label="选择客户">
+            <span class="cp-ic"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0"/></svg></span>
+            <div class="cp-main">
+              <div class="cp-name" data-role="cname">${draft.customer ? esc(draft.customer.name) : '选择客户（可跳过）'}</div>
+              <div class="cp-sub" data-role="csub">${draft.customer ? esc([draft.customer.phone, draft.customer.address].filter(Boolean).join(' · ')) : '未选择时按散客开单'}</div>
+            </div>
+            <span class="cp-arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
           </div>
-        </div>
-
-        <div class="cust-pick mb12" data-act="pick-cust">
-          <span class="cp-ic"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0"/></svg></span>
-          <div class="cp-main">
-            <div class="cp-name" data-role="cname">${draft.customer ? esc(draft.customer.name) : '选择客户（可跳过）'}</div>
-            <div class="cp-sub" data-role="csub">${draft.customer ? esc([draft.customer.phone, draft.customer.address].filter(Boolean).join(' · ')) : '未选择时按散客开单'}</div>
-          </div>
-          <span class="cp-arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
         </div>
 
         <div class="section-title">货品明细</div>
-        <div data-role="items"></div>
-        <button class="add-row-btn mb12" data-act="add-row">
-          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>添加一行
-        </button>
+        <div class="order-items-grid" data-role="items"></div>
 
         <div class="order-meta">
           <div class="field"><label class="lab">整单备注（打印在单据底部）</label><textarea data-f="note" rows="2" placeholder="默认使用设置里的备注">${esc(draft.note)}</textarea></div>
@@ -79,46 +77,202 @@ Views.order = {
 
     el.__draft = draft;
 
-    /* ----- 渲染明细行 ----- */
+    /* ----- 货品明细：卡片网格 + 「圆形 +」弹窗录入 ----- */
     const itemsBox = $('[data-role="items"]', el);
-    function itemDisplay(it) { return (it.name || '') + (it.spec ? ' ' + it.spec : ''); }
-    function itemDisplay(it) { return (it.name || '') + (it.spec ? ' ' + it.spec : ''); }
-    function rowHtml(it, i) {
+    const GRADS = [
+      'linear-gradient(135deg,#EEF2FF,#C7D2FE)',
+      'linear-gradient(135deg,#F5F3FF,#DDD6FE)',
+      'linear-gradient(135deg,#ECFDF5,#A7F3D0)',
+      'linear-gradient(135deg,#FFF7ED,#FED7AA)',
+      'linear-gradient(135deg,#F0F9FF,#BAE6FD)',
+      'linear-gradient(135deg,#FDF2F8,#FBCFE8)'
+    ];
+    const TRASH = '<path d="M3 6h18"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6"/><path d="M18.5 6l-1 13.2A1.8 1.8 0 0 1 15.7 21H8.3a1.8 1.8 0 0 1-1.8-1.8L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/>';
+    const itemGrad = name => { let h = 0; String(name || '').split('').forEach(ch => { h = (h * 31 + ch.codePointAt(0)) >>> 0; }); return GRADS[h % GRADS.length]; };
+    const itemMono = name => {
+      const s = String(name || '').trim();
+      if (!s) return '＋';
+      const first = Array.from(s)[0];
+      return /[\u4e00-\u9fff]/.test(first) ? first : s.replace(/\s+/g, '').slice(0, 2).toUpperCase();
+    };
+    const itemImage = it => {
+      let p = null;
+      if (it && it.pid) p = Store.getProduct(it.pid);
+      if (!p && it && it.name) {
+        p = Store.listProducts(it.name).find(x =>
+          x.name === it.name || (x.name + ' ' + (x.spec || '')).trim() === (it.name + ' ' + (it.spec || '')).trim());
+      }
+      return p && p.image ? p.image : '';
+    };
+    function cardHtml(it, i) {
+      const display = [it.name, it.spec].filter(Boolean).join(' ');
+      const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
+      it.amount = Math.round(q * p * 100) / 100;
+      const meta = (q ? fmtNum(q) + (it.unit ? ' ' + it.unit : '') : '数量 0') + ' × ¥' + fmtMoney(p);
+      const img = itemImage(it);
       return `
-        <div class="item-row" data-idx="${i}">
-          <div class="ir-main">
-            <div class="ir-line">
-              <input class="ir-name" data-f="name" placeholder="产品名称 / 规格" value="${esc(itemDisplay(it))}" autocomplete="off">
-              <input class="ir-unit" data-f="unit" placeholder="单位" value="${esc(it.unit)}">
-            </div>
-            <div class="ir-line ir-line2">
-              <input class="ir-qty" data-f="qty" type="number" inputmode="decimal" placeholder="数量" value="${it.qty}">
-              <input class="ir-price" data-f="price" type="number" inputmode="decimal" placeholder="单价" value="${it.price}">
-              <div class="ir-amount" data-role="amount" style="display:flex;align-items:center;justify-content:flex-end;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px;padding:0 4px;color:var(--ink)">${fmtMoney(it.amount)}</div>
-            </div>
+        <div class="pm-card oi-card" data-idx="${i}" role="button" tabindex="0" aria-label="编辑货品 ${esc(it.name || '')}">
+          <div class="pm-thumb" style="background:${itemGrad(it.name)}">
+            ${img ? `<img class="pm-thumb-img" src="${esc(productImageUrl(img))}" alt="${esc(display || '货品')}" loading="lazy" onerror="this.style.display='none';var m=this.parentElement.querySelector('.pm-mono');if(m)m.style.display='block';">` : ''}
+            <span class="pm-mono" aria-hidden="true"${img ? ' style="display:none"' : ''}>${esc(itemMono(it.name))}</span>
           </div>
-          <button class="ir-del" data-act="del-row" aria-label="删除该行"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+          <div class="pm-body">
+            <div class="pm-info">
+              <div class="pm-name" title="${esc(display || '未命名货品')}">${esc(display || '未命名货品')}</div>
+              <div class="pm-price">¥${fmtMoney(it.amount)}</div>
+              <div class="pm-meta">${esc(meta)}</div>
+            </div>
+            <button type="button" class="pm-del" data-act="del-item" data-idx="${i}" aria-label="删除该货品" title="删除"><svg viewBox="0 0 24 24" aria-hidden="true">${TRASH}</svg></button>
+          </div>
         </div>`;
     }
+    const addItemCard = `
+      <button type="button" class="pm-add" data-act="add-item" aria-label="添加货品">
+        <span class="pm-add-circle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+        <span class="pm-add-label">添加货品</span>
+      </button>`;
     function renderItems() {
-      itemsBox.innerHTML = draft.items.map(rowHtml).join('');
+      const list = draft.items || [];
+      const empty = list.length ? '' : '<div class="pm-empty">还没有货品，点下方圆圈「+」添加第一项</div>';
+      itemsBox.innerHTML = empty + list.map(cardHtml).join('') + addItemCard;
       recalc();
     }
     function recalc() {
-      let qtySum = 0;
-      draft.items.forEach((it, i) => {
-        it.qty = $('[data-idx="' + i + '"] [data-f="qty"]', el).value.trim();
-        it.price = $('[data-idx="' + i + '"] [data-f="price"]', el).value.trim();
+      let qtySum = 0, total = 0;
+      (draft.items || []).forEach(it => {
         const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
         it.amount = Math.round(q * p * 100) / 100;
-        $('[data-idx="' + i + '"] [data-role="amount"]', el).textContent = fmtMoney(it.amount);
-        qtySum += q;
+        qtySum += q; total += it.amount;
       });
-      const total = draft.items.reduce((a, it) => a + (it.amount || 0), 0);
       draft.total = Math.round(total * 100) / 100;
       $('[data-role="qtySum"]', el).textContent = fmtNum(qtySum);
       $('[data-role="total"]', el).textContent = '¥' + fmtMoney(draft.total);
       $('[data-role="upper"]', el).textContent = '大写：' + amountUpper(draft.total);
+    }
+    function openItemDialog(idx) {
+      const isEdit = idx >= 0;
+      const src = isEdit ? draft.items[idx] : { name: '', spec: '', unit: '', qty: '', price: '', pid: null, remark: '' };
+      let pickedPid = src.pid || null;
+      const PICK_PAGE_SIZE = 6;
+      let pickPage = 0;
+      const mask = document.createElement('div');
+      mask.className = 'mask show center';
+      mask.innerHTML = `
+        <div class="item-dialog item-dialog-pick" role="dialog" aria-modal="true" aria-label="${isEdit ? '编辑货品' : '添加货品'}">
+          <div class="id-hd">${isEdit ? '编辑货品' : '添加货品'}</div>
+          <div class="id-top">
+            <div class="field"><label class="lab">产品名称 *</label><input data-role="name" placeholder="输入可模糊筛选下方商品" value="${esc(src.name)}" autocomplete="off"></div>
+            <div class="field-row">
+              <div class="field"><label class="lab">规格</label><input data-role="spec" value="${esc(src.spec)}"></div>
+              <div class="field"><label class="lab">单位</label><input data-role="unit" value="${esc(src.unit)}"></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label class="lab">数量 *</label><input data-role="qty" type="number" inputmode="decimal" value="${esc(src.qty)}"></div>
+              <div class="field"><label class="lab">单价</label><input data-role="price" type="number" inputmode="decimal" value="${esc(src.price)}"></div>
+            </div>
+            <div class="id-amount">金额：<b data-role="amt">¥0.00</b></div>
+          </div>
+          <div class="id-pick">
+            <div class="id-pick-hd">商品库 <span data-role="pick-count"></span>　（点选下方商品即可填入）</div>
+            <div class="id-pick-grid" data-role="pick-grid"></div>
+            <div class="id-pick-pager hidden" data-role="pick-pager"></div>
+          </div>
+          <div class="id-ft">
+            <button class="btn btn-ghost" data-act="cancel">取消</button>
+            <button class="btn btn-primary" data-act="ok">保存</button>
+          </div>
+        </div>`;
+      $('#modal-root').appendChild(mask);
+      const pickGrid = mask.querySelector('[data-role="pick-grid"]');
+      const pickPager = mask.querySelector('[data-role="pick-pager"]');
+      const val = role => (mask.querySelector('[data-role="' + role + '"]') || {}).value || '';
+      const setVal = (role, v) => { const e = mask.querySelector('[data-role="' + role + '"]'); if (e) e.value = (v == null ? '' : v); };
+      const updAmt = () => {
+        const q = parseFloat(val('qty')) || 0, p = parseFloat(val('price')) || 0;
+        mask.querySelector('[data-role="amt"]').textContent = '¥' + fmtMoney(Math.round(q * p * 100) / 100);
+      };
+      const renderPicker = () => {
+        const kw = (val('name') || '').trim();
+        const list = Store.listProducts(kw);
+        const cnt = mask.querySelector('[data-role="pick-count"]');
+        if (cnt) cnt.textContent = kw ? '(' + list.length + ')' : '';
+        const pages = Math.max(1, Math.ceil(list.length / PICK_PAGE_SIZE));
+        if (pickPage > pages - 1) pickPage = pages - 1;
+        if (pickPage < 0) pickPage = 0;
+        const shown = list.slice(pickPage * PICK_PAGE_SIZE, pickPage * PICK_PAGE_SIZE + PICK_PAGE_SIZE);
+        if (!shown.length) {
+          pickGrid.innerHTML = '<div class="id-pick-empty">没有找到匹配的商品，可手动填写上方信息</div>';
+        } else {
+          pickGrid.innerHTML = shown.map(p => {
+            const img = p.image ? `<img class="id-pick-img" src="${esc(productImageUrl(p.image))}" alt="" loading="lazy" onerror="this.style.display='none';var m=this.parentElement.querySelector('.id-pick-mono');if(m)m.style.display='flex';">` : '';
+            const on = (pickedPid && p.id === pickedPid) ? ' on' : '';
+            return `
+              <button type="button" class="id-pick-item${on}" data-pick-pid="${esc(p.id)}">
+                <span class="id-pick-thumb" style="background:${itemGrad(p.name)}">
+                  ${img}
+                  <span class="id-pick-mono"${img ? ' style="display:none"' : ''}>${esc(itemMono(p.name))}</span>
+                </span>
+                <span class="id-pick-info"><b>${esc(p.name)}</b><span>${esc([p.spec, p.unit].filter(Boolean).join(' / ') || '无规格')}</span></span>
+                <span class="id-pick-price">${p.price != null ? '¥' + fmtMoney(p.price) : ''}</span>
+              </button>`;
+          }).join('');
+        }
+        if (pages > 1) {
+          pickPager.classList.remove('hidden');
+          pickPager.innerHTML = `
+            <button type="button" class="id-pager-btn" data-pick-page="prev"${pickPage <= 0 ? ' disabled' : ''}>‹ 上一页</button>
+            <span class="id-pager-info">第 ${pickPage + 1} / ${pages} 页</span>
+            <button type="button" class="id-pager-btn" data-pick-page="next"${pickPage >= pages - 1 ? ' disabled' : ''}>下一页 ›</button>`;
+        } else {
+          pickPager.classList.add('hidden');
+          pickPager.innerHTML = '';
+        }
+      };
+      mask.addEventListener('input', e => {
+        if (e.target.matches('[data-role="qty"],[data-role="price"]')) updAmt();
+        if (e.target.matches('[data-role="name"]')) { pickedPid = null; pickPage = 0; renderPicker(); }
+      });
+      mask.addEventListener('click', e => {
+        if (e.target === mask) { mask.remove(); return; }
+        const pg = e.target.closest('[data-pick-page]');
+        if (pg) { pickPage += (pg.dataset.pickPage === 'next' ? 1 : -1); renderPicker(); return; }
+        const pick = e.target.closest('[data-pick-pid]');
+        if (pick) {
+          const p = Store.getProduct(pick.dataset.pickPid);
+          if (!p) return;
+          pickedPid = p.id;
+          setVal('name', p.name);
+          setVal('spec', p.spec || '');
+          setVal('unit', p.unit || '');
+          let price = (p.price != null ? p.price : '');
+          const custId = draft.customer ? draft.customer.id : null;
+          if (custId) { const last = Store.getLastPrice(custId, p.id); if (last != null && last !== '') price = last; }
+          setVal('price', price);
+          updAmt();
+          renderPicker();
+          return;
+        }
+        const a = e.target.closest('[data-act]');
+        if (!a) return;
+        if (a.dataset.act === 'cancel') { mask.remove(); return; }
+        if (a.dataset.act === 'ok') {
+          const name = val('name').trim();
+          if (!name) { toast('请填写产品名称', true); return; }
+          const qty = val('qty').trim(), price = val('price').trim();
+          const payload = {
+            pid: pickedPid || src.pid || null, name,
+            spec: val('spec').trim(), unit: val('unit').trim(),
+            qty, price, remark: src.remark || '',
+            amount: Math.round((parseFloat(qty) || 0) * (parseFloat(price) || 0) * 100) / 100,
+          };
+          if (isEdit) draft.items[idx] = payload; else draft.items.push(payload);
+          mask.remove();
+          renderItems();
+        }
+      });
+      updAmt();
+      renderPicker();
+      setTimeout(() => { const n = mask.querySelector('[data-role="name"]'); if (n) n.focus(); }, 30);
     }
     renderItems();
 
@@ -180,92 +334,27 @@ Views.order = {
       $('[data-role="csub"]', el).textContent = c ? [c.phone, c.address].filter(Boolean).join(' · ') : '未选择时按散客开单';
     }
 
-    /* ----- 产品选择弹层（填充某一行） ----- */
-    function openProductPicker(idx) {
-      let kw = '';
-      const it = draft.items[idx];
-      const renderList = () => {
-        const list = Store.listProducts(kw);
-        const custId = draft.customer ? draft.customer.id : null;
-        bd.querySelector('[data-role="plist"]').innerHTML = list.length ? list.map(p => {
-          const price = Store.getLastPrice(custId, p.id) ?? (p.price == null ? '' : p.price);
-          return `
-          <div class="list-item" data-pick-p="${p.id}">
-            <div class="li-main">
-              <div class="li-title">${esc(p.name)}</div>
-              <div class="li-sub">${esc([p.code, p.spec, p.unit].filter(Boolean).join(' · '))}</div>
-            </div>
-            <div class="li-end"><div class="num">${price === '' ? '无价' : fmtMoney(price)}</div></div>
-          </div>`;
-        }).join('') : `<div class="empty" style="padding:26px 0"><div class="em-s">没有匹配的商品，可直接在表单里手输</div></div>`;
-      };
-      const sheet = openSheet(`
-        <div class="searchbar"><input placeholder="搜索商品名称 / 编号 / 规格" data-role="pkw"></div>
-        <div data-role="plist"></div>
-        <div class="hint" style="padding:0 4px">选中的商品会记住该客户的成交价（一客一价）</div>`, '选择商品');
-      const bd = $('.sheet-bd', sheet.mask);
-      renderList();
-      $('[data-role="pkw"]', bd).addEventListener('input', e => { kw = e.target.value; renderList(); });
-      bd.addEventListener('click', e => {
-        const pick = e.target.closest('[data-pick-p]');
-        if (!pick) return;
-        const p = Store.getProduct(pick.dataset.pickP);
-        if (!p) return;
-        const custId = draft.customer ? draft.customer.id : null;
-        const price = Store.getLastPrice(custId, p.id) ?? (p.price == null ? '' : p.price);
-        Object.assign(it, {
-          pid: p.id, name: p.name, spec: p.spec || '', unit: p.unit || '',
-          price: price === '' ? '' : String(price),
-        });
-        renderItems();
-        sheet.mask.remove();
-      });
-    }
+    /* 货品明细通过「圆形 +」弹窗录入（见 openItemDialog），支持手动填写。 */
 
     /* ----- 事件 ----- */
     el.addEventListener('click', e => {
       const act = e.target.closest('[data-act]');
-      if (!act) return;
-      const a = act.dataset.act;
-      if (a === 'back') { history.length > 1 ? history.back() : (location.hash = '#/home'); return; }
-      if (a === 'save') { save(); return; }
-      if (a === 'pick-cust') { openCustPicker(); return; }
-      if (a === 'add-row') { draft.items.push({ pid: null, name: '', spec: '', unit: '', qty: '', price: '', amount: 0, remark: '' }); renderItems(); return; }
-      if (a === 'del-row') {
-        const idx = +act.closest('[data-idx]').dataset.idx;
-        if (draft.items.length <= 1) { toast('至少保留一行'); return; }
-        draft.items.splice(idx, 1);
-        renderItems();
+      if (act) {
+        const a = act.dataset.act;
+        if (a === 'back') { history.length > 1 ? history.back() : (location.hash = '#/home'); return; }
+        if (a === 'save') { save(); return; }
+        if (a === 'pick-cust') { openCustPicker(); return; }
+        if (a === 'add-item') { openItemDialog(-1); return; }
+        if (a === 'del-item') { const idx = +act.dataset.idx; draft.items.splice(idx, 1); renderItems(); return; }
+        return;
       }
+      const card = e.target.closest('.oi-card');
+      if (card && card.dataset.idx != null) { openItemDialog(+card.dataset.idx); }
     });
     el.addEventListener('input', e => {
       const f = e.target.closest('[data-f]');
       if (!f) return;
-      const row = e.target.closest('[data-idx]');
-      if (row) {
-        const idx = +row.dataset.idx;
-        const it = draft.items[idx];
-        const key = f.dataset.f;
-        if (key === 'name') {
-          const prev = (it.name || '') + (it.spec ? ' ' + it.spec : '');
-          it.name = f.value;
-          if (f.value !== prev) it.spec = '';
-        } else {
-          it[key] = f.value;
-        }
-        if (key === 'qty' || key === 'price') recalc();
-      } else {
-        const key = f.dataset.f;
-        draft[key] = f.value;
-        if (key === 'date') { /* 单号基于原日期生成，改日期不影响已生成单号 */ }
-      }
-    });
-    el.addEventListener('focusin', e => {
-      const name = e.target.closest('.ir-name');
-      if (name) {
-        const row = e.target.closest('[data-idx]');
-        if (row) openProductPicker(+row.dataset.idx);
-      }
+      draft[f.dataset.f] = f.value;
     });
 
     function save() {
@@ -356,19 +445,26 @@ Views.order = {
             <span class="dc-state">已开单</span>
           </div>
           <div class="dc-body">
-            <div class="dc-line"><span class="k">客户</span><span class="v">${esc((o.customer && o.customer.name) || '散客')}</span></div>
-            ${o.customer && o.customer.phone ? `<div class="dc-line"><span class="k">电话</span><span class="v">${esc(o.customer.phone)}</span></div>` : ''}
-            ${o.customer && o.customer.address ? `<div class="dc-line"><span class="k">地址</span><span class="v">${esc(o.customer.address)}</span></div>` : ''}
-            ${o.customer && o.customer.contact ? `<div class="dc-line"><span class="k">联系人</span><span class="v">${esc(o.customer.contact)}</span></div>` : ''}
-            <div class="dc-line"><span class="k">日期</span><span class="v">${esc(o.date)}</span></div>
-            ${o.operator ? `<div class="dc-line"><span class="k">制单人</span><span class="v">${esc(o.operator)}</span></div>` : ''}
+            <div class="dc-meta">
+              <div class="dc-meta-group dc-customer">
+                <div class="dc-line dc-span2"><span class="k">客户</span><span class="v">${esc((o.customer && o.customer.name) || '散客')}</span></div>
+                ${o.customer && o.customer.phone ? `<div class="dc-line"><span class="k">电话</span><span class="v">${esc(o.customer.phone)}</span></div>` : ''}
+                ${o.customer && o.customer.contact ? `<div class="dc-line"><span class="k">联系人</span><span class="v">${esc(o.customer.contact)}</span></div>` : ''}
+                ${o.customer && o.customer.address ? `<div class="dc-line dc-span2"><span class="k">地址</span><span class="v">${esc(o.customer.address)}</span></div>` : ''}
+              </div>
+              <div class="dc-meta-group dc-order">
+                <div class="dc-line"><span class="k">日期</span><span class="v">${esc(o.date)}</span></div>
+                ${o.operator ? `<div class="dc-line"><span class="k">制单人</span><span class="v">${esc(o.operator)}</span></div>` : ''}
+              </div>
+            </div>
             <table class="tbl dc-tbl">
-              <thead><tr><th style="width:30px">#</th><th>产品名称</th><th style="width:40px">单位</th><th style="width:50px">数量</th><th style="width:70px">单价</th><th style="width:78px">金额</th></tr></thead>
+              <thead><tr><th style="width:30px">#</th><th>产品名称</th><th style="width:76px">规格</th><th style="width:40px">单位</th><th style="width:50px">数量</th><th style="width:70px">单价</th><th style="width:78px">金额</th></tr></thead>
               <tbody>
                 ${o.items.map((it, i) => `
                   <tr>
                     <td class="num">${i + 1}</td>
                     <td class="left">${esc(it.name)}</td>
+                    <td>${esc(it.spec || '-')}</td>
                     <td>${esc(it.unit || '-')}</td>
                     <td class="num">${fmtNum(it.qty)}</td>
                     <td class="num">${fmtMoney(it.price)}</td>

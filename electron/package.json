@@ -1,0 +1,49 @@
+{
+  "name": "songhuodan-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "送货单统计 — 电脑版（Electron 桌面壳）",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.songhuodan.desktop",
+    "productName": "送货单统计",
+    "directories": {
+      "output": "dist"
+    },
+    "extraResources": [
+      {
+        "from": "../android/app/src/main/assets/app",
+        "to": "webapp"
+      }
+    ],
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "../android/app/src/main/assets/app/assets/brand/dns-icon-512.png"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office"
+    }
+  }
+}

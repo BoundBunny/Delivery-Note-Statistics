@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.log
+
+# 临时截图自检产物
+.shots/
+
+# 商品图片默认存储目录（运行时生成）
+CommercesData/
+
+# 本地工具 / ACL 诊断恢复产物，不提交
+.claude/
+.dsh-acl-recovery/

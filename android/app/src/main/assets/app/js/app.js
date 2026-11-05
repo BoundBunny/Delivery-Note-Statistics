@@ -119,7 +119,9 @@
     if ((location.hash || '#/home') !== key) return;
 
     const previous = container.firstElementChild;
-    const shouldSlide = previous && currentPage && currentPage.key !== key && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // 桌面宽屏是「左导航 + 右工作区」布局，滑动遮罩按移动端 640px 居中的逻辑会错位，故宽屏直接切换。
+    const canSlide = window.innerWidth < 900 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const shouldSlide = previous && currentPage && currentPage.key !== key && canSlide;
     const snapshot = shouldSlide ? previous.cloneNode(true) : null;
     const scrollTop = window.scrollY;
     const direction = navigationDirection(path, tab);
@@ -127,7 +129,7 @@
     if (previous && typeof previous.dispose === 'function') previous.dispose();
     container.innerHTML = '';
     container.appendChild(view);
-    setTab(tab);
+    setTab(tab, path);
     window.scrollTo(0, 0);
     currentPage = { key, path, tab };
     if (historyStack[historyStack.length - 1] !== key) historyStack.push(key);
@@ -135,8 +137,22 @@
     if (snapshot) slidePage(snapshot, view, direction, scrollTop);
   }
 
-  function setTab(tab) {
-    $$('#tabbar .tab-item').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  function setTab(tab, path) {
+    const desktop = window.innerWidth >= 900;
+    const routeHash = '#' + (path || '');
+    let matchedSide = false;
+    if (desktop) {
+      $$('#tabbar .side-extra').forEach(b => { if (b.dataset.sideRoute === routeHash) matchedSide = true; });
+    }
+    $$('#tabbar .tab-item').forEach(b => {
+      let on;
+      if (b.dataset.sideRoute) {
+        on = desktop && b.dataset.sideRoute === routeHash;   // 宽屏：客户/商品侧栏项按路由高亮
+      } else {
+        on = !matchedSide && b.dataset.tab === tab;          // 命中侧栏项时，底部/常规项不再高亮
+      }
+      b.classList.toggle('on', on);
+    });
   }
 
   /* Android 返回键：优先回退应用内路由 */
@@ -167,10 +183,11 @@
   window.addEventListener('beforeprint', () => { if (finishTransition) finishTransition(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && finishTransition) finishTransition(); });
 
-  /* 底部导航 */
+  /* 底部导航 / 左侧导航 */
   $('#tabbar').addEventListener('click', e => {
     const tab = e.target.closest('.tab-item');
     if (!tab) return;
+    if (tab.dataset.sideRoute) { location.hash = tab.dataset.sideRoute; return; }
     const key = tab.dataset.tab;
     location.hash = TAB_ROUTE[key] || '#/home';
   });

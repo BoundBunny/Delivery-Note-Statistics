@@ -223,7 +223,7 @@
 
     var sheetTags = '';
     for (var s = 0; s < sheets.length; s++) {
-      sheetTags += '<sheet name="' + escXml(sheets[s].name).slice(0, 31) + '" sheetId="' + (s + 1) + '" r:id="rId' + (s + 1) + '"/>';
+      sheetTags += '<sheet name="' + escXml(String(sheets[s].name || '').slice(0, 31)) + '" sheetId="' + (s + 1) + '" r:id="rId' + (s + 1) + '"/>';
     }
 
     var workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

@@ -23,6 +23,8 @@ const Store = (() => {
       operator: '',
       note: '以上货物请当面核对，清楚无误后签字，如有质量问题，请在收货3天内通知本公司，感谢您的支持与配合！',
       billTitle: '{year}年{customer}与{company}{month}月账单',
+      // 商品图片存储目录；留空表示使用默认目录（应用所在目录下的 CommercesData）
+      imageDir: '',
     },
     customers: [],
     products: [],
@@ -50,7 +52,46 @@ const Store = (() => {
       try { localStorage.setItem(K[k], JSON.stringify(cache[k])); } catch (e) { /* 容量超限 */ }
     });
   }
+
+  /* ---------- 初始商品目录 ----------
+   * 首次运行把随应用附带的初始商品写入商品库（只含 barcode/name/unit/spec）。
+   * 用一次性标记，且按条码或「名称+规格」去重，避免重复写入或覆盖用户数据。
+   */
+  const SEED_FLAG = 'sd_v1_seed_products_v1';
+  function seedKey(name, spec) {
+    const norm = v => String(v == null ? '' : v).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+    return norm(name) + '\u0000' + norm(spec);
+  }
+  function seedInitialProducts() {
+    try {
+      if (localStorage.getItem(SEED_FLAG) === '1') return;
+      const seeds = Array.isArray(window.SEED_PRODUCTS) ? window.SEED_PRODUCTS : [];
+      const seenBarcode = new Set(d.products.filter(p => p.barcode).map(p => String(p.barcode).trim()));
+      const seenKey = new Set(d.products.map(p => seedKey(p.name, p.spec)));
+      const now = Date.now();
+      let added = 0;
+      seeds.forEach((s, i) => {
+        const item = {
+          barcode: String(s && s.barcode || '').trim(),
+          name: String(s && s.name || '').trim(),
+          unit: String(s && s.unit || '').trim(),
+          spec: String(s && s.spec || '').trim(),
+        };
+        if (!item.name) return;
+        if (item.barcode && seenBarcode.has(item.barcode)) return;
+        const key = seedKey(item.name, item.spec);
+        if (seenKey.has(key)) return;
+        d.products.push({ id: uid(), createdAt: now - i, ...item });
+        if (item.barcode) seenBarcode.add(item.barcode);
+        seenKey.add(key);
+        added++;
+      });
+      if (added) persist();
+      localStorage.setItem(SEED_FLAG, '1');
+    } catch (_) { /* localStorage 不可用时忽略 */ }
+  }
   const d = load();
+  seedInitialProducts();
 
   /* ---------- 设置 ---------- */
   function getSettings() { return d.settings; }
@@ -209,11 +250,26 @@ const Store = (() => {
     }, null, 2);
   }
   function importJSON(text) {
-    const obj = JSON.parse(text);
+    let obj;
+    try { obj = JSON.parse(text); } catch (e) { throw new Error('备份文件内容不是有效的 JSON，已取消恢复。'); }
     if (!obj || obj.app !== 'songhuodan' || !obj.data) throw new Error('不是有效的送货单统计备份文件');
-    ['settings', 'customers', 'products', 'orders', 'lastPrices', 'seqMap'].forEach(k => {
-      if (obj.data[k] != null) d[k] = obj.data[k];
+    const src = obj.data;
+    // 先校验类型，全部通过后再落盘，避免写入一半导致数据半新半旧
+    const isArr = v => Array.isArray(v);
+    const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+    if (src.settings != null && !isObj(src.settings)) throw new Error('备份中的设置数据格式不正确');
+    if (src.customers != null && !isArr(src.customers)) throw new Error('备份中的客户数据格式不正确');
+    if (src.products != null && !isArr(src.products)) throw new Error('备份中的商品数据格式不正确');
+    if (src.orders != null && !isArr(src.orders)) throw new Error('备份中的单据数据格式不正确');
+    if (src.lastPrices != null && !isObj(src.lastPrices)) throw new Error('备份中的价格记录格式不正确');
+    if (src.seqMap != null && !isObj(src.seqMap)) throw new Error('备份中的单号序号格式不正确');
+    // 完整覆盖：备份里缺的字段回落到默认值，而不是保留当前旧数据
+    Object.keys(K).forEach(k => {
+      if (src[k] != null) d[k] = src[k];
+      else d[k] = JSON.parse(JSON.stringify(DEFAULTS[k]));
     });
+    // 合并默认设置，保证新增设置项有值
+    d.settings = Object.assign(JSON.parse(JSON.stringify(DEFAULTS.settings)), d.settings);
     persist();
   }
 
@@ -297,11 +353,18 @@ const Store = (() => {
       name: header.findIndex(h => /^(?:(?:产品|商品|货品)(?:名称|名)|名称|品名|productname|name)$/i.test(h.replace(/\s/g, ''))),
       spec: header.findIndex(h => /规格|型号/.test(h)),
       unit: header.findIndex(h => /单位/.test(h)),
-      price: header.findIndex(h => /零售价|价格|售价/.test(h)),
+      price: header.findIndex(h => /零售价|价格|售价|单价/.test(h)),
       cost: header.findIndex(h => /成本/.test(h)),
       remark: header.findIndex(h => /备注/.test(h)),
     };
     if (idx.name < 0) throw new Error('未识别到“产品名称”表头，请选择正确的商品 CSV 文件。');
+    function parseMoney(v) {
+      if (v == null) return undefined;
+      const s = String(v).trim();
+      if (s === '') return undefined;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : undefined;
+    }
     let added = 0, skipped = 0;
     const existsName = new Set(d.products.map(p => p.name));
     for (let i = 1; i < rows.length; i++) {
@@ -315,8 +378,8 @@ const Store = (() => {
         barcode: String(idx.barcode >= 0 ? r[idx.barcode] || '' : '').trim(),
         spec: String(idx.spec >= 0 ? r[idx.spec] || '' : '').trim(),
         unit: String(idx.unit >= 0 ? r[idx.unit] || '' : '').trim(),
-        price: idx.price >= 0 && r[idx.price] != null && r[idx.price].trim() !== '' ? Number(r[idx.price]) : undefined,
-        cost: idx.cost >= 0 && r[idx.cost] != null && r[idx.cost].trim() !== '' ? Number(r[idx.cost]) : undefined,
+        price: idx.price >= 0 ? parseMoney(r[idx.price]) : undefined,
+        cost: idx.cost >= 0 ? parseMoney(r[idx.cost]) : undefined,
         remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
       });
       existsName.add(name);

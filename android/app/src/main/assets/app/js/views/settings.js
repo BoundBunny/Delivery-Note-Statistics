@@ -19,6 +19,7 @@ Views.settings = {
       export: '<path d="M5 3h9l5 5v13H5z" fill="currentColor" opacity=".15" stroke="none"/><path d="M14 3v5h5M9 12h4M9 16h3M16 17h6m-3-3 3 3-3 3M5 21V3h9l5 5v3"/>',
       import: '<path d="M5 3h9l5 5v13H5z" fill="currentColor" opacity=".15" stroke="none"/><path d="M14 3v5h5M12 11v7m-3-3 3 3 3-3M5 21V3h9l5 5v13"/>',
       trash: '<path d="M6 7h12l-1 14H7z" fill="currentColor" opacity=".15" stroke="none"/><path d="M4 7h16M9 7V3h6v4M6 7l1 14h10l1-14M10 11v6m4-6v6"/>',
+      image: '<rect x="3" y="4" width="18" height="16" rx="3" fill="currentColor" opacity=".15" stroke="none"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="M4 17l4.5-4.5a2 2 0 0 1 2.7 0L15 16m-1.5-1.5 1.8-1.8a2 2 0 0 1 2.7 0L21 16"/>',
     };
     const row = ({ act, go, title, note, icon, tone, value = '' }) => `
       <button type="button" class="settings-row${act === 'company-info' ? ' company-info-entry' : ''}" ${act ? 'data-act="' + act + '"' : 'data-go="' + go + '"'}>
@@ -54,6 +55,21 @@ Views.settings = {
             ${row({ act: 'clear', title: '清空全部数据', note: '删除所有单据、客户、商品，不可恢复', icon: 'trash', tone: 'red' })}
           </div>
         </section>
+        <section class="settings-section" aria-labelledby="settings-image-title">
+          <h2 class="settings-section-title" id="settings-image-title">商品图片</h2>
+          <div class="settings-card">
+            <div class="settings-row settings-image-row">
+              <span class="settings-row-icon settings-icon-teal" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons.image}</svg></span>
+              <span class="settings-row-main sr-main"><span class="settings-row-title">图片存储位置</span><span class="settings-row-note sr-s" data-role="image-dir">加载中…</span></span>
+            </div>
+            <div class="settings-image-actions" data-role="image-actions">
+              <button type="button" class="btn btn-ghost btn-sm" data-act="choose-image-dir">更改文件夹</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-act="open-image-dir">打开文件夹</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-act="reset-image-dir">恢复默认</button>
+            </div>
+            <div class="settings-image-hint" data-role="image-hint">上传的商品图片会保存到这个文件夹，纯本地存储、不联网；默认目录为程序所在文件夹下的 CommercesData。</div>
+          </div>
+        </section>
         <section class="settings-section" aria-labelledby="settings-about-title">
           <h2 class="settings-section-title" id="settings-about-title">关于</h2>
           <div class="settings-card">
@@ -66,12 +82,51 @@ Views.settings = {
         </section>
       </div>`;
 
+    const imageDirNote = $('[data-role="image-dir"]', el);
+    const imageActions = $('[data-role="image-actions"]', el);
+    let imageDefaultDir = '';
+    const updateImageDirNote = () => {
+      if (!imageDirNote) return;
+      const cur = Store.getSettings().imageDir;
+      imageDirNote.textContent = cur || imageDefaultDir || '默认目录（CommercesData）';
+      imageDirNote.title = imageDirNote.textContent;
+    };
+    if (window.Android && window.Android.getDefaultImageDir) {
+      window.Android.getDefaultImageDir()
+        .then(def => { imageDefaultDir = def || ''; updateImageDirNote(); })
+        .catch(() => updateImageDirNote());
+    } else {
+      if (imageActions) imageActions.style.display = 'none';
+      if (imageDirNote) imageDirNote.textContent = '网页版图片保存在浏览器本地存储中';
+    }
+
     el.addEventListener('click', async e => {
       const go = e.target.closest('[data-go]');
       if (go) { location.hash = '#/' + go.dataset.go; return; }
       const act = e.target.closest('[data-act]');
       if (!act) return;
       const a = act.dataset.act;
+      if (a === 'choose-image-dir') {
+        if (!(window.Android && window.Android.chooseImageDir)) { toast('当前环境不支持设置文件夹', true); return; }
+        try {
+          const dir = await window.Android.chooseImageDir();
+          if (dir) { Store.setSettings({ imageDir: dir }); updateImageDirNote(); toast('已更新图片存储位置'); }
+        } catch (err) {
+          toast('设置失败：' + (err && err.message || err), true);
+        }
+        return;
+      }
+      if (a === 'reset-image-dir') {
+        Store.setSettings({ imageDir: '' });
+        updateImageDirNote();
+        toast('已恢复默认图片位置');
+        return;
+      }
+      if (a === 'open-image-dir') {
+        if (!(window.Android && window.Android.openImageDir)) { toast('当前环境不支持打开文件夹', true); return; }
+        window.Android.openImageDir(Store.getSettings().imageDir || '');
+        return;
+      }
       if (a === 'company-info') {
         location.hash = '#/settings/company';
         return;
@@ -108,7 +163,7 @@ Views.settings = {
       }
       if (a === 'exp-products') {
         const ps = Store.listProducts('');
-        const bytes = Xlsx.build([{ name: '商品', title: '商品资料', headers: ['编号', '条码', '产品名称', '规格', '单位', '默认单价', '成本价', '备注'], rows: ps.map(p => [p.code || '', p.barcode || '', p.name, p.spec || '', p.unit || '', p.price != null ? p.price : '', p.cost != null ? p.cost : '', p.remark || '']), widths: [12, 14, 22, 12, 8, 10, 10, 20] }]);
+        const bytes = Xlsx.build([{ name: '商品', title: '商品资料', headers: ['编号', '条码', '产品名称', '规格', '单位', '零售价', '成本价', '备注'], rows: ps.map(p => [p.code || '', p.barcode || '', p.name, p.spec || '', p.unit || '', p.price != null ? p.price : '', p.cost != null ? p.cost : '', p.remark || '']), widths: [12, 14, 22, 12, 8, 10, 10, 20] }]);
         downloadBlob('商品.xlsx', xlsxBlob(bytes));
         toast('已导出 Excel');
         return;

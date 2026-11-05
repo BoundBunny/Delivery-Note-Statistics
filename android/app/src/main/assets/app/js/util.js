@@ -343,3 +343,45 @@ function shareFile(filename, blob) {
   }
   downloadBlob(filename, blob);
 }
+
+/* ---------- 商品图片（本地存储，无网络请求） ---------- */
+// 把本地图片路径 / 已有地址转换为 <img src> 可用的地址
+function productImageUrl(src) {
+  if (!src) return '';
+  const s = String(src);
+  if (/^(data:|blob:|https?:|file:|sdimg:)/i.test(s)) return s;
+  if (window.Android && window.Android.imageUrl) {
+    try { return window.Android.imageUrl(s); } catch (_) { return s; }
+  }
+  return s;
+}
+
+// 选择一张商品图片：
+// - 桌面端（Electron）：复制到本地图片目录并返回文件绝对路径；
+// - 浏览器回退：读取为 data URL，仍然只存在本机，不发起网络请求。
+function pickProductImage(destDir) {
+  return new Promise(resolve => {
+    if (window.Android && window.Android.pickProductImage) {
+      window.Android.pickProductImage(destDir || '')
+        .then(res => {
+          if (res && res.ok) resolve(res.path);
+          else if (res && res.canceled) resolve(null);
+          else { toast('选择图片失败：' + ((res && res.error) || '未知错误'), true); resolve(null); }
+        })
+        .catch(err => { toast('选择图片失败：' + (err && err.message || err), true); resolve(null); });
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = () => {
+      const f = input.files && input.files[0];
+      if (!f) { resolve(null); return; }
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => { toast('读取图片失败', true); resolve(null); };
+      reader.readAsDataURL(f);
+    };
+    input.click();
+  });
+}

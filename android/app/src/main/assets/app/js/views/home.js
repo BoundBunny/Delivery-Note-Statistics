@@ -34,34 +34,40 @@ Views.home = {
     const productRank = Array.from(productSales.values())
       .sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name, 'zh-CN'))
       .slice(0, 3);
+    // 关联商品库，取商品图片用于缩略图展示（无图则用占位图标）
+    productRank.forEach(p => {
+      const list = Store.listProducts(p.name);
+      const match = list.find(x => x.name === p.name && (x.spec || '') === p.spec) || list.find(x => x.name === p.name);
+      p.image = match && match.image ? match.image : '';
+    });
     const crown = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7 5 3 4-7 4 7 5-3-2 12H5L3 7zm3 14h12" fill="currentColor"/></svg>';
-    const productBadge = product => {
-      const initials = product ? Array.from(product.name.replace(/\s+/g, '').toUpperCase()).slice(0, 2).join('') : '待';
-      return `<svg viewBox="0 0 88 96" aria-hidden="true">
-        <path d="M44 5 80 27 72 74 44 91 16 74 8 27Z" fill="currentColor" opacity=".14"/>
-        <path d="M44 5 80 27 72 74 44 91 16 74 8 27Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/>
-        <path d="M44 12 73 30 66 70 44 83 22 70 15 30Z" fill="none" stroke="currentColor" opacity=".35" stroke-width="1"/>
-        <text class="podium-monogram" x="44" y="47" text-anchor="middle">${esc(initials)}</text>
-        <path d="m36 64 8-4 8 4v9l-8 4-8-4zm0 0 8 4 8-4m-8 4v9" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".8"/>
-      </svg>`;
+    const BOX_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8.5 12 3 3 8.5v7L12 21l9-5.5v-7Z"/><path d="M3 8.5 12 13l9-4.5"/><path d="M12 13v8"/></svg>';
+    const productThumb = product => {
+      const hasImg = product && product.image;
+      return `<span class="podium-thumb">
+        ${hasImg ? `<img class="podium-thumb-img" src="${esc(productImageUrl(product.image))}" alt="${esc(product.name)}" loading="lazy" onerror="this.style.display='none';var f=this.parentElement.querySelector('.podium-thumb-fallback');if(f)f.style.display='flex';">` : ''}
+        <span class="podium-thumb-fallback"${hasImg ? ' style="display:none"' : ''}>${BOX_ICON}</span>
+      </span>`;
     };
     const podiumItem = rank => {
       const product = productRank[rank - 1];
       const place = ['冠军', '亚军', '季军'][rank - 1];
+      const specText = product ? [String(product.spec || '').trim(), String(product.unit || '').trim()].filter(Boolean).join('') : '';
       const identity = product ? `
-        <button type="button" class="podium-info" data-podium-product="${rank}" aria-label="第${rank}名，${esc(product.name)}${product.spec ? '，' + esc(product.spec) : ''}，查看完整商品信息">
-          <span class="podium-product-badge">${productBadge(product)}</span>
-          <span class="podium-product-name">${esc(product.name)}</span>
-          <span class="podium-product-spec">${esc(product.spec)}</span>
+        <button type="button" class="podium-info" data-podium-product="${rank}" aria-label="第${rank}名，${esc(product.name)}${specText ? '，' + esc(specText) : ''}，查看完整商品信息">
+          ${productThumb(product)}
+          <span class="podium-product-name" title="${esc(product.name)}">${esc(product.name)}</span>
+          <span class="podium-product-spec" title="${esc(specText)}">${esc(specText || '—')}</span>
         </button>` : `
         <div class="podium-info">
-          <span class="podium-product-badge">${productBadge(null)}</span>
+          ${productThumb(null)}
           <span class="podium-product-name">虚位以待</span>
           <span class="podium-product-spec">暂无上榜商品</span>
         </div>`;
       return `<li class="podium-place podium-place-${rank}${product ? '' : ' podium-place-empty'}"${product ? ' data-product-rank="' + rank + '"' : ''} value="${rank}" aria-label="第${rank}名${product ? '' : '，暂无上榜商品'}">
         ${identity}
-        <div class="podium-product-qty">${product ? numberHtml(product.qty, { label: product.name + '累计销量（' + (product.unit || '件') + '）', maxLength: 8 }) + `<span class="podium-product-unit" title="${esc(product.unit || '件')}">${esc(product.unit || '件')}</span>` : '<span class="podium-pending-qty">—</span>'}</div>
+        <div class="podium-product-qty">${product ? numberHtml(product.qty, { label: product.name + '累计销量', maxLength: 8 }) : '<span class="podium-pending-qty">—</span>'}</div>
+        <div class="podium-spacer" aria-hidden="true"></div>
         <div class="podium-stage" aria-hidden="true">${crown}<span class="podium-place-number">${rank}</span><span class="podium-place-label">${place}</span></div>
       </li>`;
     };

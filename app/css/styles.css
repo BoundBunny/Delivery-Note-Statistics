@@ -1,30 +1,34 @@
 /* ============================================================
    送货单统计 — 样式表
-   视觉体系：统一浅灰背景、低饱和银灰层次与轻盈玻璃交互
-   保留原有色彩变量名以兼容页面，常规强调统一为中性灰蓝。
+   视觉体系：参照 shadcn/ui POS 模板 —— 中性 zinc 底色、白色细描边卡片、
+   靛蓝→紫罗兰渐变强调色与背景柔光晕（与 Electron 版保持一致）。
+   保留原有色彩变量名以兼容页面（amber = 主强调色，blue = 次强调色）。
    ============================================================ */
 :root{
-  --paper:#F5F5F7;
+  --paper:#F7F7FA;
   --surface:#FFFFFF;
-  --ink:#20242A;
-  --muted:#858B96;
-  --faint:#AAB0BA;
-  --line:#E4E7ED;
-  --line-strong:#D3D9E2;
-  --amber:#718096;
-  --amber-deep:#41516A;
-  --amber-soft:#E9EDF3;
-  --blue:#66778E;
-  --blue-soft:#EAF0F6;
-  --red:#B45E59;
-  --red-soft:#F6ECEB;
-  --green:#697F78;
-  --green-soft:#EDF1F0;
-  --shadow:0 1px 2px rgba(57,70,91,.035),0 6px 20px rgba(57,70,91,.055);
-  --glass-fill:linear-gradient(145deg,rgba(255,255,255,.96),rgba(255,255,255,.56) 48%,rgba(228,235,244,.72));
-  --glass-shadow:inset 0 1px 0 rgba(255,255,255,.98),inset 0 -1px 0 rgba(134,151,174,.12),0 5px 14px rgba(75,91,116,.11);
-  --radius:12px;
-  --radius-sm:8px;
+  --ink:#09090B;
+  --muted:#71717A;
+  --faint:#A1A1AA;
+  --line:#F0F0F3;
+  --line-strong:#E4E4E7;
+  --amber:#6366F1;
+  --amber-deep:#4F46E5;
+  --amber-soft:#EEF2FF;
+  --blue:#7C3AED;
+  --blue-soft:#F5F3FF;
+  --red:#E11D48;
+  --red-soft:#FFF1F2;
+  --green:#059669;
+  --green-soft:#ECFDF5;
+  --grad-primary:linear-gradient(135deg,#6366F1 0%,#8B5CF6 55%,#D946EF 100%);
+  --ring:0 0 0 3px rgba(99,102,241,.18);
+  --shadow:0 0 0 1px rgba(24,24,27,.06),0 1px 2px rgba(24,24,27,.04),0 4px 14px rgba(24,24,27,.035);
+  --shadow-hover:0 0 0 1px rgba(99,102,241,.22),0 8px 28px -6px rgba(79,70,229,.22);
+  --glass-fill:linear-gradient(#FFFFFF,#FFFFFF);
+  --glass-shadow:0 1px 2px rgba(24,24,27,.05);
+  --radius:14px;
+  --radius-sm:10px;
   --tabbar-h:60px;
   --safe-top:env(safe-area-inset-top, 0px);
   --safe-bottom:env(safe-area-inset-bottom, 0px);
@@ -622,3 +626,138 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
   .glass-tap-overlay{display:none!important}
   .glass-tap-target{transform:none!important;animation:none!important;filter:none!important}
 }
+
+/* ============================================================
+   shadcn/ui POS 风格主题层（与 Electron 版一致，覆盖上方旧的灰蓝玻璃样式）
+   中性 zinc 底色 + 固定柔光晕背景、白色细描边卡片、靛蓝→紫→品红渐变强调
+   ============================================================ */
+:root{
+  --bg-glow:
+    radial-gradient(42rem 30rem at -8% -12%,rgba(99,102,241,.20),transparent 62%),
+    radial-gradient(36rem 26rem at 108% -6%,rgba(217,70,239,.13),transparent 60%),
+    radial-gradient(40rem 30rem at 88% 108%,rgba(56,189,248,.12),transparent 62%),
+    radial-gradient(30rem 22rem at 8% 100%,rgba(139,92,246,.09),transparent 60%);
+}
+body::before,body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none}
+body::before{background:var(--bg-glow)}
+body::after{
+  background-image:radial-gradient(rgba(24,24,27,.07) 1px,transparent 1px);
+  background-size:22px 22px;
+  -webkit-mask-image:linear-gradient(180deg,#000,transparent 55%);
+  mask-image:linear-gradient(180deg,#000,transparent 55%);
+}
+.page-transition-layer{background:var(--bg-glow),var(--paper)}
+
+.topbar,.customer-toolbar,.customer-group-heading{
+  background:rgba(247,247,250,.72);
+  -webkit-backdrop-filter:saturate(1.6) blur(14px);
+  backdrop-filter:saturate(1.6) blur(14px);
+}
+.customer-toolbar .topbar{background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none}
+#print-view .topbar{border-bottom-color:var(--line-strong)}
+
+input,select,textarea{background:#fff;transition:border-color .15s ease,box-shadow .15s ease}
+input:hover,select:hover,textarea:hover{border-color:#D4D4D8}
+input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var(--ring)}
+
+.section-title::before{background:var(--grad-primary)}
+.tri-strip::before{background:linear-gradient(180deg,#6366F1,#8B5CF6 55%,#D946EF)}
+
+.btn,.icbtn,.add-row-btn,.ir-del,.bill-title-reset{
+  border:1px solid var(--line-strong);
+  background:#fff;
+  box-shadow:0 1px 2px rgba(24,24,27,.05);
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  transition:transform .18s cubic-bezier(.2,.9,.3,1.35),box-shadow .18s ease,background-color .15s ease,border-color .15s ease,filter .18s ease;
+}
+.btn:hover,.icbtn:hover,.bill-title-reset:hover{background:#F4F4F5}
+.btn-ghost{color:var(--ink)}
+.btn-primary,.btn-blue,.btn-primary:hover,.btn-blue:hover,.btn-primary:active{
+  background:var(--grad-primary);color:#fff;font-weight:600;border-color:transparent;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 1px 2px rgba(79,70,229,.3),0 8px 20px -6px rgba(124,58,237,.55);
+}
+.btn-primary:hover,.btn-blue:hover{filter:brightness(1.07) saturate(1.05)}
+.btn-danger,.btn-danger:hover{background:linear-gradient(135deg,#F43F5E,#E11D48);color:#fff;border-color:transparent;box-shadow:0 6px 16px -6px rgba(225,29,72,.5)}
+.btn-danger:hover{filter:brightness(1.06)}
+.btn-danger-ghost,.ir-del{background:#fff;color:var(--red);border-color:#FECDD3}
+.btn-danger-ghost:hover,.ir-del:hover{background:var(--red-soft)}
+.icbtn{border-radius:12px;background:rgba(255,255,255,.85);box-shadow:0 1px 2px rgba(24,24,27,.05)}
+.icbtn:active{background:#F4F4F5}
+.bill-title-reset{color:var(--amber-deep)}
+.add-row-btn{background:var(--blue-soft);color:var(--blue);border:1px dashed #C4B5FD;box-shadow:none}
+.add-row-btn:hover{background:#EDE9FE}
+
+.glass-tap-target.is-pressed{box-shadow:inset 0 2px 6px rgba(24,24,27,.12),0 1px 2px rgba(24,24,27,.06);filter:brightness(.97)}
+.glass-ripple{background:radial-gradient(circle,rgba(99,102,241,.22),rgba(139,92,246,.1) 45%,rgba(255,255,255,0) 70%)}
+.btn-primary .glass-ripple,.btn-blue .glass-ripple,.btn-danger .glass-ripple,.tab-new .glass-ripple{background:radial-gradient(circle,rgba(255,255,255,.55),rgba(255,255,255,.15) 45%,rgba(255,255,255,0) 70%)}
+
+.seg{background:rgba(244,244,245,.85);border:1px solid var(--line-strong);box-shadow:none}
+.seg button{font-weight:500;transition:color .15s ease,background-color .15s ease,box-shadow .15s ease}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(24,24,27,.1),0 0 0 1px rgba(24,24,27,.04)}
+
+.customer-index button.on{background:var(--grad-primary);color:#fff;box-shadow:0 4px 10px -2px rgba(99,102,241,.5)}
+.customer-index-toast{background:rgba(9,9,11,.82);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+
+.stat-card{position:relative;overflow:hidden}
+.stat-card::after{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--grad-primary);opacity:.85;pointer-events:none}
+
+.sales-rank{position:relative;isolation:isolate;overflow:hidden;border:none;background:#fff;box-shadow:var(--shadow)}
+.sales-rank::before{content:"";position:absolute;z-index:-1;left:-10%;right:-10%;top:-45%;height:80%;background:radial-gradient(closest-side,rgba(139,92,246,.14),transparent);pointer-events:none}
+.podium-place{--podium-accent:#4F46E5;--podium-top:#E0E7FF;--podium-bottom:#A5B4FC;--podium-cap:#EEF2FF}
+.podium-place-2{--podium-accent:#7C3AED;--podium-top:#EDE9FE;--podium-bottom:#C4B5FD;--podium-cap:#F5F3FF}
+.podium-place-3{--podium-accent:#C026D3;--podium-top:#FAE8FF;--podium-bottom:#F0ABFC;--podium-cap:#FDF4FF}
+.podium-place-1 .podium-stage{background:var(--grad-primary);color:#fff;box-shadow:0 12px 26px -10px rgba(124,58,237,.6)}
+.podium-place-1 .podium-stage::before{background:#C7D2FE}
+.podium-monogram{fill:#4F46E5}
+.podium-pending-qty{color:var(--faint)}
+.podium-empty-crown{color:#A78BFA}
+
+#tabbar{
+  background:rgba(255,255,255,.78);
+  border-top:1px solid rgba(24,24,27,.06);
+  box-shadow:0 -6px 24px rgba(24,24,27,.04);
+  -webkit-backdrop-filter:saturate(1.8) blur(18px);
+  backdrop-filter:saturate(1.8) blur(18px);
+}
+.tab-item.on{color:var(--amber-deep)}
+.tab-item.on:not(.tab-new){background:linear-gradient(180deg,rgba(99,102,241,.09),rgba(139,92,246,.03));box-shadow:none}
+.tab-new .new-circle,.tab-new.on .new-circle{
+  background:var(--grad-primary);color:#fff;border:3px solid #fff;
+  box-shadow:0 8px 20px -4px rgba(124,58,237,.55);
+}
+
+.mask{background:rgba(9,9,11,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+.sheet{box-shadow:0 -10px 40px rgba(9,9,11,.12)}
+.confirm-box{background:#fff;border-radius:18px;box-shadow:0 24px 60px -12px rgba(9,9,11,.3)}
+#toast{background:rgba(9,9,11,.9);border-radius:12px;box-shadow:0 12px 30px -8px rgba(9,9,11,.4)}
+#toast.err{background:var(--red)}
+
+.cust-pick{background:rgba(255,255,255,.6);border-color:#C7D2FE;transition:border-color .15s ease,background-color .15s ease}
+.cust-pick:hover{border-color:var(--amber);background:#fff}
+.cust-pick .cp-ic{background:var(--grad-primary);color:#fff}
+
+.settings-view{background:transparent}
+.settings-view .settings-card{box-shadow:var(--shadow)}
+.settings-view .settings-section-title{color:var(--muted)}
+.settings-view .settings-row{color:var(--ink);transition:background-color .15s ease}
+.settings-view button.settings-row:hover{background:#FAFAFA}
+.settings-view button.settings-row:active{background:#F4F4F5}
+.settings-view .settings-row-note{color:var(--faint)}
+.settings-view .settings-row-value{color:var(--muted)}
+.settings-view .settings-chevron{stroke:#D4D4D8}
+.settings-view .settings-icon-amber{color:#F59E0B}
+.settings-view .settings-icon-green{color:#10B981}
+.settings-view .settings-icon-blue{color:#3B82F6}
+.settings-view .settings-icon-teal{color:#14B8A6}
+.settings-view .settings-icon-purple{color:#A855F7}
+.settings-view .settings-icon-violet{color:#6366F1}
+
+.bar-trend .bt-bar{background:linear-gradient(180deg,#8B5CF6,#6366F1);border-radius:6px 6px 2px 2px}
+.bar-trend .bt-bar.hl{background:linear-gradient(180deg,#F0ABFC,#D946EF)}
+.hbar .hb-track{background:#F4F4F5}
+.hbar .hb-fill{background:var(--grad-primary)}
+.hbar .hb-row.blue .hb-fill{background:linear-gradient(90deg,#38BDF8,#6366F1)}
+
+@media print{body::before,body::after{display:none!important}}

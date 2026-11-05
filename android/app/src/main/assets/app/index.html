@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#F5F5F7">
+<meta name="theme-color" content="#F7F7FA">
 <title>送货单统计</title>
 <link rel="icon" type="image/svg+xml" href="assets/brand/dns-icon.svg">
 <link rel="icon" type="image/png" sizes="48x48" href="assets/brand/dns-icon-48.png">
@@ -14,6 +14,10 @@
 <div id="app">
   <main id="view-container" aria-live="polite"></main>
   <nav id="tabbar" aria-label="主导航">
+    <div class="side-brand" aria-hidden="true">
+      <img class="side-brand-logo" src="assets/brand/dns-icon.svg" width="36" height="36" alt="">
+      <div class="side-brand-text"><b>送货单统计</b><span>桌面版</span></div>
+    </div>
     <button class="tab-item" data-tab="home" aria-label="工作台">
       <svg viewBox="0 0 24 24" class="tab-ic"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-9.5Z"/></svg>
       <span>工作台</span>
@@ -32,6 +36,14 @@
       <svg viewBox="0 0 24 24" class="tab-ic"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
       <span>统计</span>
     </button>
+    <button class="tab-item side-extra" data-side-route="#/customers" aria-label="客户管理">
+      <svg viewBox="0 0 24 24" class="tab-ic"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.74"/></svg>
+      <span>客户管理</span>
+    </button>
+    <button class="tab-item side-extra" data-side-route="#/products" aria-label="商品管理">
+      <svg viewBox="0 0 24 24" class="tab-ic"><path d="M21 8.5 12 3 3 8.5v7L12 21l9-5.5v-7Z"/><path d="M3 8.5 12 13l9-4.5"/><path d="M12 13v8"/></svg>
+      <span>商品管理</span>
+    </button>
     <button class="tab-item" data-tab="settings" aria-label="设置">
       <svg viewBox="0 0 24 24" class="tab-ic"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.5-2-3.5-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.5 2 1.5a7.4 7.4 0 0 0 0 2.4l-2 1.5 2 3.5 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.5-2-1.5c.07-.4.1-.8.1-1.2Z"/></svg>
       <span>设置</span>
@@ -43,6 +55,7 @@
 <script src="js/util.js"></script>
 <script src="js/xlsx.js"></script>
 <script src="js/vendor/pinyin-pro.js"></script>
+<script src="js/seed-products.js"></script>
 <script src="js/store.js"></script>
 <script src="js/views/home.js"></script>
 <script src="js/views/order.js"></script>
