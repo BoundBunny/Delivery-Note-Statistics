@@ -8,7 +8,7 @@
   --paper:#F7F7FA;
   --surface:#FFFFFF;
   --ink:#09090B;
-  --muted:#71717A;
+  --muted:#676773;
   --faint:#A1A1AA;
   --line:#F0F0F3;
   --line-strong:#E4E4E7;
@@ -157,7 +157,7 @@ textarea{resize:vertical;min-height:64px}
 .field .lab{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:500}
 .field-row{display:flex;gap:10px}
 .field-row .field{flex:1;min-width:0}
-.hint{font-size:12px;color:var(--faint);margin-top:4px}
+.hint{font-size:12px;color:var(--muted);margin-top:4px}
 
 /* ---------- 列表 ---------- */
 .list{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 16px 12px;overflow:hidden}
@@ -185,7 +185,7 @@ textarea{resize:vertical;min-height:64px}
 .customers-view .customer-list{margin-right:42px;background:none;box-shadow:none;border-radius:0;overflow:visible}
 .customer-group:last-child{min-height:calc(100vh - var(--customer-toolbar-height,110px) - var(--tabbar-h) - var(--safe-bottom) - 36px)}
 .customer-group-heading{position:sticky;top:var(--customer-toolbar-height,110px);z-index:20;display:flex;align-items:center;gap:8px;margin:0;padding:7px 12px;background:var(--paper);color:var(--muted);font-size:13px;font-weight:700;line-height:20px}
-.customer-group-heading span{font-size:11px;font-weight:400;color:var(--faint)}
+.customer-group-heading span{font-size:11px;font-weight:400;color:var(--muted)}
 .customers-view .customer-group-list{margin:0 0 10px}
 .customer-empty{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow)}
 .customer-data-warning{margin:0 42px 10px 16px;padding:10px 12px;border-radius:10px;background:var(--amber-soft);color:var(--amber-deep);font-size:12px;line-height:1.6}
@@ -281,7 +281,7 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 /* ---------- 图表 ---------- */
 .chart-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);margin:0 16px 12px;padding:14px 16px}
 .chart-card h3{font-size:14px;font-weight:600;margin-bottom:10px}
-.chart-card .tip{font-size:11.5px;color:var(--faint);margin-top:6px;text-align:right}
+.chart-card .tip{font-size:11.5px;color:var(--muted);margin-top:6px;text-align:right}
 
 /* ---------- 空态 ---------- */
 .empty{padding:52px 24px;text-align:center;color:var(--muted)}
@@ -543,7 +543,7 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 .settings-view button.settings-row:focus-visible{outline:2px solid var(--amber);outline-offset:-3px;border-radius:14px}
 .settings-view .settings-row-main{flex:1;min-width:0}
 .settings-view .settings-row-title{display:block;font-size:16px;font-weight:600;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
-.settings-view .settings-row-note{display:block;margin-top:3px;font-size:11.5px;line-height:1.6;font-weight:400;color:#999CA3;white-space:normal;overflow-wrap:anywhere}
+.settings-view .settings-row-note{display:block;margin-top:3px;font-size:11.5px;line-height:1.6;font-weight:400;color:var(--muted);white-space:normal;overflow-wrap:anywhere}
 .settings-view .settings-row-value{flex:none;max-width:24%;font-size:12px;color:#969AA3;font-weight:400;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .settings-view .settings-chevron{flex:none;width:18px;height:18px;fill:none;stroke:#BDC0C6;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .settings-view .settings-row-icon{display:flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px}
@@ -1007,7 +1007,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
 .settings-view .settings-row{color:var(--ink);transition:background-color .15s ease}
 .settings-view button.settings-row:hover{background:#FAFAFA}
 .settings-view button.settings-row:active{background:#F4F4F5}
-.settings-view .settings-row-note{color:var(--faint)}
+.settings-view .settings-row-note{color:var(--muted)}
 .settings-view .settings-row-value{color:var(--muted)}
 .settings-view .settings-chevron{stroke:#D4D4D8}
 .settings-view .settings-icon-amber{color:#F59E0B}

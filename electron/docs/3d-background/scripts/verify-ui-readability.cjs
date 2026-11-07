@@ -118,30 +118,36 @@ app.whenReady().then(async () => {
     log('DEFAULT_STATE ' + await js(`JSON.stringify(window.DNSBackground.stats())`));
     log('DEFAULT_LAYER ' + await js(`!!document.getElementById('bg3d-layer')`));
 
-    const routes = ['#/settings', '#/'];
+    const routes = ['#/settings', '#/products', '#/'];
     let allOk = true;
     for (const route of routes) {
       await js(`location.hash='${route}'`);
       await sleep(1500);
       const rects = await js(COLLECT);
       const region = [260, 110, 1240, 880];
+      const tag = route === '#/' ? 'home' : route.replace('#/', '').replace('/', '-');
       log('\n=== ROUTE ' + route + '  文字样本 ' + rects.length + ' ===');
 
-      const offBm = toBitmap(await cap('verify-ui-3d-off.png'));
+      const offBm = toBitmap(await cap('verify-ui-' + tag + '-off.png'));
       const off = score(offBm, rects);
       await js(`window.DNSBackground.setEnabled(true); window.DNSBackground.setMode('soft');`);
       await sleep(3400);
-      const softBm = toBitmap(await cap('verify-ui-3d-soft.png'));
+      const softBm = toBitmap(await cap('verify-ui-' + tag + '-soft.png'));
       const soft = score(softBm, rects);
       await js(`window.DNSBackground.setMode('full');`);
       await sleep(2800);
-      const fullBm = toBitmap(await cap('verify-ui-3d-full.png'));
+      const fullBm = toBitmap(await cap('verify-ui-' + tag + '-full.png'));
       const full = score(fullBm, rects);
 
       log('OFF  ' + JSON.stringify(off) + '  背景噪声=' + JSON.stringify(noiseIndex(offBm, region)));
       log('SOFT ' + JSON.stringify(soft) + '  露出率=' + diffRatio(offBm, softBm, region) + ' 背景噪声=' + JSON.stringify(noiseIndex(softBm, region)));
       log('FULL ' + JSON.stringify(full) + '  露出率=' + diffRatio(offBm, fullBm, region) + ' 背景噪声=' + JSON.stringify(noiseIndex(fullBm, region)));
-      const ok = !off || !soft || !full || (soft.p10 >= off.p10 * 0.92 && soft.min >= off.min * 0.8 && soft.p10 >= full.p10);
+      // 判定：WCAG AA（正文 4.5:1）为硬线；柔化档基本等于关闭基线
+      // 「全开」是明确标注可能干扰界面的档位，只作参考，不参与判定
+      const AA = 4.5;
+      const ok = !off || !soft
+        ? true
+        : (soft.min >= AA && soft.p10 >= AA && soft.p10 >= off.p10 * 0.95 && soft.min >= off.min * 0.95);
       if (!ok) allOk = false;
       await js(`window.DNSBackground.setEnabled(false)`);
       await sleep(400);
