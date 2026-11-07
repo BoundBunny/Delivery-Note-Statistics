@@ -54,40 +54,59 @@ const Store = (() => {
   }
 
   /* ---------- 初始商品目录 ----------
-   * 首次运行把随应用附带的初始商品写入商品库（只含 barcode/name/unit/spec）。
+   * 首次运行把随应用附带的初始商品写入商品库（barcode/name/unit/spec/category）。
    * 用一次性标记，且按条码或「名称+规格」去重，避免重复写入或覆盖用户数据。
    */
   const SEED_FLAG = 'sd_v1_seed_products_v1';
+  const SEED_CAT_FLAG = 'sd_v1_seed_products_cat_v1';
   function seedKey(name, spec) {
     const norm = v => String(v == null ? '' : v).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
     return norm(name) + '\u0000' + norm(spec);
   }
   function seedInitialProducts() {
     try {
-      if (localStorage.getItem(SEED_FLAG) === '1') return;
       const seeds = Array.isArray(window.SEED_PRODUCTS) ? window.SEED_PRODUCTS : [];
-      const seenBarcode = new Set(d.products.filter(p => p.barcode).map(p => String(p.barcode).trim()));
-      const seenKey = new Set(d.products.map(p => seedKey(p.name, p.spec)));
-      const now = Date.now();
-      let added = 0;
-      seeds.forEach((s, i) => {
-        const item = {
-          barcode: String(s && s.barcode || '').trim(),
-          name: String(s && s.name || '').trim(),
-          unit: String(s && s.unit || '').trim(),
-          spec: String(s && s.spec || '').trim(),
-        };
-        if (!item.name) return;
-        if (item.barcode && seenBarcode.has(item.barcode)) return;
-        const key = seedKey(item.name, item.spec);
-        if (seenKey.has(key)) return;
-        d.products.push({ id: uid(), createdAt: now - i, ...item });
-        if (item.barcode) seenBarcode.add(item.barcode);
-        seenKey.add(key);
-        added++;
-      });
-      if (added) persist();
-      localStorage.setItem(SEED_FLAG, '1');
+      if (localStorage.getItem(SEED_FLAG) !== '1') {
+        const seenBarcode = new Set(d.products.filter(p => p.barcode).map(p => String(p.barcode).trim()));
+        const seenKey = new Set(d.products.map(p => seedKey(p.name, p.spec)));
+        const now = Date.now();
+        let added = 0;
+        seeds.forEach((s, i) => {
+          const item = {
+            barcode: String(s && s.barcode || '').trim(),
+            name: String(s && s.name || '').trim(),
+            unit: String(s && s.unit || '').trim(),
+            spec: String(s && s.spec || '').trim(),
+            category: String(s && s.category || '').trim(),
+          };
+          if (!item.name) return;
+          if (item.barcode && seenBarcode.has(item.barcode)) return;
+          const key = seedKey(item.name, item.spec);
+          if (seenKey.has(key)) return;
+          d.products.push({ id: uid(), createdAt: now - i, ...item });
+          if (item.barcode) seenBarcode.add(item.barcode);
+          seenKey.add(key);
+          added++;
+        });
+        if (added) persist();
+        localStorage.setItem(SEED_FLAG, '1');
+      }
+      // 老版本已入库的初始商品没有分类，这里按「名称+规格」补一次（不覆盖用户自己设的分类）
+      if (localStorage.getItem(SEED_CAT_FLAG) !== '1') {
+        const catMap = new Map();
+        seeds.forEach(s => {
+          const c = String(s && s.category || '').trim();
+          if (c) catMap.set(seedKey(s.name, s.spec), c);
+        });
+        let patched = 0;
+        d.products.forEach(p => {
+          if (p && p.category) return;
+          const c = catMap.get(seedKey(p.name, p.spec));
+          if (c) { p.category = c; patched++; }
+        });
+        if (patched) persist();
+        localStorage.setItem(SEED_CAT_FLAG, '1');
+      }
     } catch (_) { /* localStorage 不可用时忽略 */ }
   }
   const d = load();
