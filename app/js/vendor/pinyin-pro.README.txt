@@ -1,5 +1,0 @@
-pinyin-pro 3.18.2
-MIT license. Browser bundle is vendored for fully offline customer-name sorting.
-Source: https://github.com/zh-lx/pinyin-pro
-Package: https://registry.npmjs.org/pinyin-pro/-/pinyin-pro-3.18.2.tgz
-Integrity: sha512-syJcc1Fc5a6mek365wRNKrU4DSYtnUZSbEHK6LN371mJXwSwTYx6Pmq5YYnkXUNihwWBdxBmfH8uCCKmQeU2VA==
