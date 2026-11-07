@@ -38,7 +38,11 @@
   function enabled() {
     if (force === '0') return false;
     if (force === '1') return true;
-    try { return localStorage.getItem(KEY) === '1'; } catch (e) { return false; }
+    try {
+      var v = localStorage.getItem(KEY);
+      if (v === '0') return false;          // 明确关闭
+      return v !== null ? v === '1' : true; // 默认开启（背景板是老板要的工作底板）
+    } catch (e) { return true; }
   }
   function mode() {
     try { return localStorage.getItem(MODE_KEY) === 'full' ? 'full' : 'soft'; } catch (e) { return 'soft'; }
@@ -128,6 +132,7 @@
     layer.appendChild(scrim);
 
     document.body.insertBefore(layer, document.body.firstChild);
+    document.body.classList.add('bg3d-on');
     applyMode();
 
     loadScript('3d/vendor/three.min.js', function () {
@@ -142,10 +147,12 @@
   }
 
   function applyMode() {
-    if (!layer) return;
     var m = mode();
-    if (scrim) scrim.style.background = m === 'full' ? 'rgba(247,247,250,0)' : 'rgba(247,247,250,.66)';
-    if (layer) layer.style.opacity = m === 'full' ? '0.92' : '0.9';
+    // 背景板本身的白纱（作用在场景上）
+    if (scrim) scrim.style.background = m === 'full' ? 'rgba(247,247,250,0)' : 'rgba(247,247,250,.45)';
+    // 工作面玻璃的不透明度（作用在应用上）：全开＝场景透得更多
+    document.body.style.setProperty('--bg3d-sheet', m === 'full' ? '.46' : '.72');
+    if (layer) layer.style.opacity = '1';
   }
 
   function onReady() {
@@ -181,6 +188,8 @@
     loading = false;
     st.state = state || 'off';
     st.fps = 0;
+    document.body.classList.remove('bg3d-on');
+    document.body.style.removeProperty('--bg3d-sheet');
     if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
     layer = null; canvas = null; img = null; scrim = null; params = null;
   }

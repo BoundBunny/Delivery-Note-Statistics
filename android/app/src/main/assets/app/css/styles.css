@@ -61,7 +61,7 @@ textarea{resize:vertical;min-height:64px}
 ::-webkit-scrollbar{width:0;height:0}
 
 #app{max-width:640px;margin:0 auto;min-height:100%}
-#view-container{padding-bottom:calc(var(--tabbar-h) + var(--safe-bottom) + 12px)}
+#view-container{padding-bottom:calc(var(--tabbar-h) + var(--safe-bottom) + 12px);background:var(--paper)}
 .view{display:none;padding-top:var(--safe-top)}
 .view.active{display:block}
 .page-transition{
@@ -701,8 +701,36 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
   /* 右侧工作区：随窗口宽度自适应铺满 */
   #view-container{flex:1;min-width:0;padding-bottom:48px}
   #view-container>.view{max-width:none;margin:0;padding-top:0}
-  /* 客户字母索引：贴工作区右缘 */
+
+  /* ---- 3D 背景板模式：整个应用浮在背景板上，功能模块照常使用 ----
+   * 工作面是一整块连续的磨砂玻璃（不再是卡片缝里透出场景），
+   * 文字、按钮、列表、弹窗都在玻璃之上，背景板只作氛围，互不遮挡。 */
+  body.bg3d-on #app{padding:14px;gap:14px}
+  body.bg3d-on #tabbar{
+    top:14px;height:calc(100vh - 28px);
+    border-radius:16px;border-right:none;
+    background:linear-gradient(180deg,rgba(255,255,255,.90),rgba(243,245,249,.84));
+    -webkit-backdrop-filter:blur(18px) saturate(1.05);
+    backdrop-filter:blur(18px) saturate(1.05);
+    box-shadow:0 8px 26px rgba(24,24,27,.10);
+  }
+  body.bg3d-on #view-container{
+    border-radius:16px;
+    background:rgba(247,247,250,var(--bg3d-sheet,.72));
+    -webkit-backdrop-filter:blur(20px) saturate(1.06);
+    backdrop-filter:blur(20px) saturate(1.06);
+    box-shadow:0 10px 30px rgba(24,24,27,.12);
+  }
+  /* 客户字母索引：贴工作面右缘 */
   .customer-index{bottom:14px;right:14px}
+}
+
+/* 打印时不要背景板 */
+@media print{
+  #bg3d-layer{display:none!important}
+  body.bg3d-on #app{padding:0;gap:0}
+  body.bg3d-on #tabbar{top:0;height:auto;border-radius:0;background:none;box-shadow:none}
+  body.bg3d-on #view-container{border-radius:0;background:none;box-shadow:none}
 }
 
 @media print{

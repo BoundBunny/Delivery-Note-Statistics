@@ -89,15 +89,9 @@ app.whenReady().then(async () => {
   try {
     await sleep(3200);
 
-    // 0) 默认关闭：老板打开就是干净界面
-    check('默认不加载 3D 层', (await js(`!!document.getElementById('bg3d-layer')`)) === false);
-    check('默认状态为 off', (await js(`window.DNSBackground.stats().state`)) === 'off');
-
-    // 开启后再验证各项能力
-    await js(`window.DNSBackground.setEnabled(true)`);
-    await sleep(2600);
-    check('开启后进入加载态', ['loading', 'ready'].indexOf(await js(`window.DNSBackground.stats().state`)) >= 0);
-    check('默认强度为柔化', (await js(`window.DNSBackground.stats().mode`)) === 'soft');
+    // 0) 默认开启：3D 背景板就是老板的工作底板
+    check('默认加载 3D 背景板', (await js(`!!document.getElementById('bg3d-layer')`)) === true);
+    check('工作面进入浮层模式', (await js(`document.body.classList.contains('bg3d-on')`)) === true);
 
     // 1) 无 iframe + 画布挂载
     check('无 iframe 残留', await js(`!document.querySelector('#bg3d-layer iframe')`));
@@ -140,7 +134,19 @@ app.whenReady().then(async () => {
     fs.writeFileSync(path.join(SHOTS, 'verify-bg3d-no3d.png'), B);
     await js(`document.getElementById('bg3d-layer').style.display=''`);
     const diff = diffRatio(bitmap(A), bitmap(B), 380, 60, 1200, 820);
-    check('3D 透过界面可见', diff > 0.02, '内容区像素差异 ' + (diff * 100).toFixed(1) + '%');
+    check('3D 透过工作面可见', diff > 0.02, '内容区像素差异 ' + (diff * 100).toFixed(1) + '%');
+
+    // 5.5) 功能模块在背景板上照常可用（点击落到按钮上、背景不拦截）
+    const clickable = await js(`(function(){
+      var btn = document.querySelector('.tab-item[data-tab="orders"]');
+      if(!btn) return 'NO_TAB';
+      var r = btn.getBoundingClientRect();
+      var top = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+      return top ? (btn.contains(top) ? 'HIT_TAB' : 'BLOCKED_BY:' + (top.id||'') + '.' + (top.className||'')) : 'NULL';
+    })()`);
+    check('导航按钮可点（不被背景遮挡）', clickable === 'HIT_TAB', clickable);
+    const bgPointer = await js(`(function(){var l=document.getElementById('bg3d-layer'); return l? getComputedStyle(l).pointerEvents : 'NO_LAYER';})()`);
+    check('背景板不拦截点击', bgPointer === 'none', bgPointer);
 
     // 6) 窄窗卸载 / 宽窗重挂
     await js(`window.__resizeLog=[]; window.addEventListener('resize',function(){ window.__resizeLog.push(window.innerWidth); });`);

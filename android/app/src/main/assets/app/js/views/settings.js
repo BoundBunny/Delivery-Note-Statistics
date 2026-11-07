@@ -10,7 +10,7 @@ Views.settings = {
     el.className = 'view active settings-view';
     const s = Store.getSettings();
     const cnt = Store.countAll();
-    const bg3dOn = (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
+    const bg3dOn = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
     const bg3dMode = (() => { try { return localStorage.getItem('sd_v1_bg3d_mode') === 'full' ? 'full' : 'soft'; } catch (e) { return 'soft'; } })();
     const bg3dStatText = () => {
       const b = window.DNSBackground && window.DNSBackground.stats ? window.DNSBackground.stats() : null;
@@ -22,7 +22,7 @@ Views.settings = {
       return (b.tier || '标准') + (b.level ? ' · 降级' + b.level + '级' : '') + ' · ' + (b.fps || '-') + ' FPS';
     };
     const bg3dValueText = () => {
-      const on = (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
+      const on = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
       return on ? ('开启 · ' + bg3dStatText()) : '关闭';
     };
     const icons = {
@@ -156,7 +156,7 @@ Views.settings = {
         return;
       }
       if (a === 'toggle-bg3d') {
-        const cur = (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
+        const cur = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
         const next = !cur;
         try { localStorage.setItem('sd_v1_bg3d', next ? '1' : '0'); } catch (e) {}
         if (window.DNSBackground) window.DNSBackground.setEnabled(next);
