@@ -29,6 +29,10 @@ window.createDNSWorkspaceScene = function (options) {
   let frame = 0, last = 0, disposed = false, phase = 0, needsFrame = true;
   let paintedFrames = 0, fps = 0, fpsWindow = performance.now();
   let mouseX = 0, cameraSway = 0, selected = 'orders';
+  let fallback = false;
+  // 标记内容尺寸快照：-1 = 从未测过（首帧要测）；null = 内容变了、需重测；数组 = 可用缓存。
+  // 改写标记文字（addMarker / setOrder / setCatalogCount / setBusinessData）时置 null。
+  let contentSizes = -1;
   const ambient = new THREE.AmbientLight('#edf3fa', .4);
   const hemi = new THREE.HemisphereLight('#fffdf8', '#a6b8c9', .5);
   const sun = new THREE.DirectionalLight('#fffaf0', 1.8);
@@ -342,8 +346,18 @@ window.createDNSWorkspaceScene = function (options) {
     // 标签文字用独立的 textContent 写入，不再依赖 innerHTML 里嵌套的 <span>。
     // 原因：<button> 内不能再放交互内容，部分环境/回流下嵌套内联 span 的文字会整段塌陷成空，
     // 表现为「白胶囊+图标在、文字没了」。改用一个带类名的块级文字容器，结构更稳、可预期。
-    const text = `<span class="marker-text"><span class="marker-title"></span><small></small></span>`;
-    el.innerHTML = `<svg><use href="#i-${spec.icon}"/></svg>${text}<span class="marker-number"></span>${active?'<i class="marker-halo"></i>':''}`;
+    // 注意：分类标记（compact）在多分类时可达上百个，innerHTML 解析会成倍放大初始化开销，
+    // 这类简单标签改用 createElement 拼装；只有模块标签（含 halo）保留 innerHTML。
+    if (spec.compact) {
+      const svgNs='http://www.w3.org/2000/svg';
+      const svg=document.createElementNS(svgNs,'svg');
+      const use=document.createElementNS(svgNs,'use'); use.setAttribute('href','#i-'+spec.icon); svg.appendChild(use);
+      const num=document.createElement('span'); num.className='marker-number';
+      el.append(svg,num);
+    } else {
+      const text = `<span class="marker-text"><span class="marker-title"></span><small></small></span>`;
+      el.innerHTML = `<svg><use href="#i-${spec.icon}"/></svg>${text}<span class="marker-number"></span>${active?'<i class="marker-halo"></i>':''}`;
+    }
     // 通过 textContent 赋值（自动转义标题里的特殊字符，也更便于后续 write/setOrder 定位更新）。
     const titleEl = el.querySelector('.marker-title');
     if (titleEl) titleEl.textContent = spec.title;
@@ -352,6 +366,7 @@ window.createDNSWorkspaceScene = function (options) {
     const numEl = el.querySelector('.marker-number');
     if (numEl) numEl.textContent = spec.label;
     el.addEventListener('click', () => options.onSelect(spec.kind,spec.category)); markerLayer.appendChild(el); markers.push({ ...spec, el });
+    contentSizes = null; // 新增标记后内容尺寸要重测
   }
 
   function size() {
@@ -371,12 +386,17 @@ window.createDNSWorkspaceScene = function (options) {
     camera.position.copy(look).add(viewOffset).addScaledVector(right, cameraSway * .2);
     camera.lookAt(look); camera.updateProjectionMatrix(); camera.updateMatrixWorld();
   }
+  function measureMarkers() {
+    contentSizes = markers.map(marker => ({ h: marker.el.offsetHeight, w: marker.el.offsetWidth }));
+    return contentSizes;
+  }
   function updateMarkers() {
     const toolRow=document.querySelector('.scene-tool-row');
     const safeTop=toolRow ? toolRow.offsetTop+toolRow.offsetHeight+10 : 195;
-    // Read dimensions together before writing styles, avoiding one layout per marker.
-    const heights=markers.map(marker=>marker.el.offsetHeight);
-    const widths=options.fixedPanels?markers.map(marker=>marker.el.offsetWidth):[];
+    // 只有内容变化（或首次）才测一次；纯相机动画帧直接复用快照，不再触发布局。
+    const sizes = (contentSizes && contentSizes !== -1) ? contentSizes : measureMarkers();
+    const heights=sizes.map(size=>size.h);
+    const widths=options.fixedPanels?sizes.map(size=>size.w):[];
     const hostRect=options.fixedPanels?host.getBoundingClientRect():null;
     const dispatch=options.fixedPanels?document.getElementById('dispatch-panel').getBoundingClientRect():null;
     const statistics=options.fixedPanels?document.getElementById('statistics-panel').getBoundingClientRect():null;
@@ -397,25 +417,23 @@ window.createDNSWorkspaceScene = function (options) {
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       // 固定工作台标签一律可见；仅在沉浸式场景里按投影深度/边界显隐。
       const visible = options.fixedPanels ? true : (p.z > -1 && p.z < 1 && x > 30 && x < width - 30 && y > (width<700?270:195) && y < height - 40);
-      if (!options.fixedPanels) {
-        // 沉浸式场景里标签是“浮在 3D 上”的徽标，anchor 用视图坐标。
-        marker.el.style.left = x + 'px';
-        marker.el.style.top = y + 'px';
-        marker.el.style.right = 'auto';
-        marker.el.style.bottom = 'auto';
-        marker.el.style.transform = 'translate(-50%,-100%)';
-        marker.el.style.opacity = visible ? '1' : '0';
-        marker.el.style.pointerEvents = visible ? 'auto' : 'none';
+      // 用 transform 平移来摆放，而不写 left/top：
+      // .scene-marker 的基础样式是 position:absolute;transform:translate(-50%,-100%)，
+      // 它相对“最近的定位祖先”定位；#scene-markers 只是 .scene-markers{position:absolute;
+      // inset:0;pointer-events:none} 的绝对层，正常情况下它就是定位参照（inset:0 撑满
+      // .scene-surface）。用 translate 把标签移到投影点 (x,y) 是唯一不受包含块影响、且
+      // 与旧版表现一致的写法（旧版本就靠 translate(-50%,-100%) 摆位置）。
+      marker.el.style.left = '0';
+      marker.el.style.top = '0';
+      marker.el.style.right = 'auto';
+      marker.el.style.bottom = 'auto';
+      if(options.fixedPanels){
+        // left/top 保持 0，用 translate 把标签中心挪到投影点 (x,y)，向上让 9px 让指针指向实体。
+        marker.el.style.transform = 'translate(' + x + 'px,' + y + 'px) translate(-50%,-100%) translateY(-9px)';
+        marker.el.style.opacity = '1';
+        marker.el.style.pointerEvents = 'auto';
       } else {
-        // 固定工作台：标签绝对定位在 #scene-markers（inset:0 层）里。只要写过 left/top，
-        // 它的包含块就可能是 #desktop-app 而不是标签层，导致 left=0 时整块被推到视口左侧、
-        // 只剩尾巴“探进来”一点点——看起来就是胶囊里的文字没了。所以这里改成底部锚定：
-        // bottom 相对标签层底部量起（偏移 = 标签高 + 指针高），所有标签水平都贴左侧。
-        marker.el.style.left = '24px';
-        marker.el.style.top = 'auto';
-        marker.el.style.right = 'auto';
-        marker.el.style.bottom = (heights[i] + 12) + 'px';
-        marker.el.style.transform = 'translateY(9px)';
+        marker.el.style.transform = 'translate(' + x + 'px,' + y + 'px) translate(-50%,-100%)';
         marker.el.style.opacity = visible ? '1' : '0';
         marker.el.style.pointerEvents = visible ? 'auto' : 'none';
       }
@@ -477,19 +495,15 @@ window.createDNSWorkspaceScene = function (options) {
     // 重置视角（focus('home')）后，DOM 标记的位置/透明度需要在相机稳定后重新计算。
     // 否则在不连续渲染（motion 关闭或场景暂停）时，标记会停留在旧的投影状态而显示异常/消失。
     reshowMarkers(){
-      // 重置视角后立即让固定工作台的标签恢复可见（不必等待下一帧），并同步重算一次投影位置，
-      // 避免在“不连续渲染（motion 关闭或场景暂停）”时标签停留在旧的/非法的投影状态而消失。
+      // 重置视角后立即重算一次投影位置并刷新固定工作台标签，避免在“不连续渲染
+      // （motion 关闭或场景暂停）”时标签停留在旧的/非法的投影状态而显示异常/消失。
+      contentSizes = -1;
       try { updateCamera(1); updateMarkers(); } catch (_) {}
       if(options.fixedPanels){
-        // 兜底：即使 updateMarkers 因异常没跑完，也要保证固定工作台的标签回到视口内且可见，
-        // 把可能被上一轮写成 0/空的值纠正回来（重置镜头后的“文字空白”就是这些值没被刷新）。
+        // 兜底：updateMarkers 若因异常没跑完，至少别让标签保持不可见。
+        // 位置一律交给 updateMarkers（它按投影 x/y 摆位），这里只强制透明度/可交互。
         for(const m of markers){
           if(m.el.hidden) continue;
-          m.el.style.left = '24px';
-          m.el.style.top = 'auto';
-          m.el.style.right = 'auto';
-          if(m.el.style.bottom === '' || m.el.style.bottom == null) m.el.style.bottom = '51px';
-          if(m.el.style.transform === '' || m.el.style.transform == null) m.el.style.transform = 'translateY(9px)';
           m.el.style.opacity = '1';
           m.el.style.pointerEvents = 'auto';
         }
@@ -514,8 +528,8 @@ window.createDNSWorkspaceScene = function (options) {
       }else{desiredTarget.copy(baseTarget);selectionRect(4,9.1);focusOutline.position.set(9,0,10.6);focusOutline.visible=kind==='orders'||kind==='home';}
       invalidate();
     },
-    setOrder(order){markers[0].el.querySelector('.marker-number').textContent=order?order.no:'暂无送货单';markers[0].el.querySelector('small').textContent=order?'点击查看单据明细':'点击进入单据工作台';invalidate();},
-    setCatalogCount(count){markers[1].el.querySelector('.marker-number').textContent=count+' 种';},
+    setOrder(order){markers[0].el.querySelector('.marker-number').textContent=order?order.no:'暂无送货单';markers[0].el.querySelector('small').textContent=order?'点击查看单据明细':'点击进入单据工作台';contentSizes=null;invalidate();},
+    setCatalogCount(count){markers[1].el.querySelector('.marker-number').textContent=count+' 种';contentSizes=null;},
     setBusinessData(data){
       const cash=value=>(Number(value)||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
       const marker=kind=>markers.find(m=>m.kind===kind&&!m.category);
@@ -526,12 +540,19 @@ window.createDNSWorkspaceScene = function (options) {
       write('stats','¥'+cash(data.monthAmount),(data.month||'本月')+' · '+(data.monthCount||0)+' 张单据');
       write('settings',data.company||'公司信息待填写',data.operator?'制单人 · '+data.operator:'公司资料 · 图片 · 备份恢复');
       for(const m of markers.filter(m=>m.category))m.el.querySelector('.marker-number').textContent=String(data.categoryCounts?.[m.category]||0);
+      contentSizes=null;
       const ranking=data.topCustomers||[],max=Math.max(1,...ranking.map(row=>Number(row.total)||0));
       accountBars.forEach((bar,i)=>{const row=ranking[i];bar.visible=!!row&&row.total>0;const h=.45+2.15*((Number(row?.total)||0)/max);bar.scale.y=h;bar.position.y=.2+h/2;});
       invalidate();
     },
     setMotion(value){const next=!!value;if(userMotion===next)return motion;userMotion=next;motion=userMotion&&!reducedQuery.matches;invalidate();return motion;},
     setImmersive(value){if(immersive===!!value)return;immersive=!!value;desiredTarget.copy(baseTarget);invalidate();},
+    // 回退提示是否正在显示：显示时应把标记层藏掉，避免“3D 不可用”与残留标签重叠。
+    setFallback(value){
+      fallback=!!value;
+      markerLayer.style.visibility=fallback?'hidden':'';
+      return fallback;
+    },
     setNight(value){
       if(night===!!value)return night;
       night=!!value;ambient.intensity=night?.2:.4;hemi.intensity=night?.25:.5;sun.intensity=night?.75:1.8;sun.color.set(night?'#c7dbf0':'#fffaf0');

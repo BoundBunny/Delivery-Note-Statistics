@@ -204,12 +204,20 @@ body.dns-desktop #toast{z-index:10000}
 #desktop-app #statistics-view .stat-cards.stats-summary{grid-template-columns:repeat(4,minmax(0,1fr))}
 #desktop-app .fixed-workspace .scene-marker{min-height:39px;gap:7px;padding:8px 11px;background:#fffffff5;font-size:11px;transform:translate(-50%,-100%);box-shadow:0 4px 18px #24364b16;transition:opacity .15s,box-shadow .15s,border-color .15s}
 #desktop-app .fixed-workspace .scene-marker[hidden]{display:none!important}
-#desktop-app .fixed-workspace .scene-marker small,#desktop-app .fixed-workspace .scene-marker .marker-number{display:none}
+/* 固定工作台只显示一行文字：模块标记显示名称（.marker-title），分类标记显示数量（.marker-number）。
+   small（明细/提示）一律隐藏。分类标记没有标题，若把 marker-number 也隐藏就只剩图标——所以
+   这里的 display:none 只作用于 non-category 标记的 marker-number。 */
+#desktop-app .fixed-workspace .scene-marker small{display:none}
+#desktop-app .fixed-workspace .scene-marker:not(.category-marker) .marker-number{display:none}
+#desktop-app .fixed-workspace .scene-marker.category-marker .marker-number{display:inline;font-size:11px;font-weight:600;color:#33465c;margin-left:0}
 #desktop-app .fixed-workspace .scene-marker svg{height:15px;width:15px}
 /* 标签文字容器：给它显式尺寸约束，避免 flex 收缩阶段把整块文字压成 0 宽而“消失” */
 #desktop-app .scene-marker .marker-text{display:flex;flex-direction:column;min-width:0;line-height:1.15;white-space:nowrap}
 #desktop-app .scene-marker .marker-title{display:block;font-size:11px;color:#3c4c5e;font-weight:600;white-space:nowrap}
 #desktop-app .fixed-workspace .scene-marker .marker-title{font-size:11px;color:#33465c}
+/* 分类标记隐藏空标题容器，免得留下 0 高度的空 span 影响对齐 */
+#desktop-app .fixed-workspace .scene-marker.category-marker .marker-title{display:none}
+#desktop-app .fixed-workspace .scene-marker.category-marker{gap:0;padding:6px 9px}
 #desktop-app .fixed-workspace .scene-marker:hover{border-color:#d1b379;box-shadow:0 6px 20px #24364b24}
 #desktop-app .fixed-workspace .scene-marker:focus-visible{outline:2px solid #b17f2c;outline-offset:3px}
 #desktop-app .fixed-workspace .scene-footnote{left:24px;right:24px;font-size:9px;bottom:10px}

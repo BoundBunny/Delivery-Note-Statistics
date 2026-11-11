@@ -222,7 +222,8 @@ window.DNSDesktop = (() => {
   function dragMove(event){if(drag&&drag.id===event.pointerId)setModuleRect({...drag,left:drag.left+event.clientX-drag.x,top:drag.top+event.clientY-drag.y});}
   function dragEnd(){drag=null;}
   function loadScript(src){if(!scriptLoads.has(src))scriptLoads.set(src,new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=src;s.onload=resolve;s.onerror=()=>{scriptLoads.delete(src);s.remove();reject(new Error('Asset load failed: '+src));};document.head.appendChild(s);}));return scriptLoads.get(src);}
-  function sceneMessage(message,enable){const el=root.querySelector('#scene-loading');el.hidden=false;el.classList.add('is-fallback');el.innerHTML=e(message)+(enable?'<button data-action="toggle-scene">开启 3D 场景</button>':'');}
+  function sceneMessage(message,enable){const el=root.querySelector('#scene-loading');el.hidden=false;el.classList.add('is-fallback');el.innerHTML=e(message)+(enable?'<button data-action="toggle-scene">开启 3D 场景</button>':'');if(scene)scene.setFallback(true);}
+  function hideSceneMessage(){const el=root.querySelector('#scene-loading');if(el.classList.contains('is-fallback')){el.hidden=true;el.classList.remove('is-fallback');el.innerHTML='';}if(scene)scene.setFallback(false);}
   function syncControls(){
     root.querySelectorAll('[data-action=motion]').forEach(b=>b.setAttribute('aria-pressed',String(!prefs.motion)));root.querySelectorAll('[data-action=lighting]').forEach(b=>b.setAttribute('aria-pressed',String(prefs.night)));
     const expand=root.querySelector('[data-action=reset-view]');expand.title=mode==='home'?'重置场景视角':'返回固定工作台';expand.setAttribute('aria-label',expand.title);
@@ -234,7 +235,7 @@ window.DNSDesktop = (() => {
     root.classList.toggle('scene-paused',!prefs.scene||inactive||!prefs.motion||matchMedia('(prefers-reduced-motion: reduce)').matches);
     root.querySelector('#warehouse').style.visibility=prefs.scene?'visible':'hidden';root.querySelector('#scene-markers').hidden=!prefs.scene||mode==='task'||mode==='reader';
     if(!prefs.scene){scene?.pause();sceneMessage('3D 场景已关闭，固定分区和业务操作仍可使用。',true);return;}
-    if(scene){root.querySelector('#scene-loading').hidden=true;scene.setMotion(prefs.motion);scene.setNight(prefs.night);if(inactive)scene.pause();else scene.resume();return;}
+    if(scene){hideSceneMessage();scene.setMotion(prefs.motion);scene.setNight(prefs.night);if(inactive)scene.pause();else scene.resume();return;}
     if(inactive||sceneLoading)return;sceneLoading=true;const token=generation;
     (async()=>{
       if(!window.THREE)await loadScript(new URL('vendor/three.min.js',location.href).href);
@@ -243,7 +244,7 @@ window.DNSDesktop = (() => {
       if(!prefs.scene||mode!=='home'||document.hidden||window.__dnsWindowActive===false){sceneLoading=false;return;}
       scene=window.createDNSWorkspaceScene({onSelect:openSceneModule,pixelRatioCap:1.25,shadowSize:1024,maxFPS:30,motion:prefs.motion,fixedPanels:true});
       scene.setImmersive(true);updateSceneData();sceneLoading=false;updateScene();
-    })().catch(()=>{if(started&&token===generation){sceneLoading=false;sceneMessage('3D 场景暂不可用，固定分区和业务操作仍可正常使用。',false);}});
+    })().catch(err=>{scene=null;if(started&&token===generation){sceneLoading=false;sceneMessage('3D 场景暂不可用，固定分区和业务操作仍可正常使用。',false);}console.error('[3D] 场景初始化失败：',err);});
   }
   function setSceneEnabled(value){prefs.scene=!!value;savePrefs();updateScene();}
   function search(value){
@@ -271,7 +272,7 @@ window.DNSDesktop = (() => {
     if(action==='selection-expand'){const o=selected();if(o)go(mode==='detail'?(state.listExpanded?'#/orders':'#/home'):'#/order/view?id='+encodeURIComponent(o.id));}
     if(action==='copy-order'){const o=selected();if(o){window.__orderDraft={...o,id:null,customer:o.customer?{...o.customer}:null,items:o.items.map(i=>({...i})),_copy:true};go('#/order/new');}}
     if(action==='restore-workspace')go('#/home');
-    if(action==='reset-view'){if(mode==='home'){scene?.focus('home');scene?.reshowMarkers?.();}else go('#/home');}
+    if(action==='reset-view'){if(mode==='home'){scene?.focus('home');scene?.reshowMarkers?.();setTimeout(()=>scene?.reshowMarkers?.(),180);}else go('#/home');}
     if(action==='motion'){prefs.motion=!prefs.motion;savePrefs();updateScene();toast(prefs.motion?'场景动画已开启（遵循系统减少动态效果设置）':'场景动画已暂停');}
     if(action==='lighting'){prefs.night=!prefs.night;savePrefs();scene?.setNight(prefs.night);syncControls();}
     if(action==='toggle-scene')setSceneEnabled(!prefs.scene);
