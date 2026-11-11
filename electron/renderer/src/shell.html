@@ -1,0 +1,85 @@
+<svg class="icon-defs" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+      <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h6"/></symbol>
+      <symbol id="i-box" viewBox="0 0 24 24"><path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/></symbol>
+      <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="7.5" r="3.5"/><path d="M2 21v-2a7 7 0 0 1 14 0v2M17 4a3.5 3.5 0 0 1 0 7M18 15a6 6 0 0 1 4 6"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v18h18M7 16v-4M12 16V7M17 16v-7"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="m10 3-.7 2.5-2.2 1L4.5 6 3 8.5l1.9 1.8v3.4L3 15.5 4.5 18l2.6-.5 2.2 1L10 21h4l.7-2.5 2.2-1 2.6.5 1.5-2.5-1.9-1.8v-3.4L21 8.5 19.5 6l-2.6.5-2.2-1L14 3z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-print" viewBox="0 0 24 24"><path d="M7 8V3h10v5M7 17H4V8h16v9h-3M7 14h10v7H7zM16 11h1"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2m-3-7 1-1M5 19l1-1m12 0 1 1M5 5l1 1"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+      <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></symbol>
+      <symbol id="i-wallet" viewBox="0 0 24 24"><path d="M20 7H5a2 2 0 0 1 0-4h13v4M4 5v14a2 2 0 0 0 2 2h14V7M20 11h-5v6h5M17 14h.01"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="app-header">
+    <a class="brand" href="#" aria-label="送货宝首页">
+      <img src="assets/brand/dns-icon.svg" alt="送货宝" width="41" height="41">
+      <span><strong>送货宝</strong></span>
+    </a>
+    <div class="header-search">
+      <svg><use href="#i-search"/></svg>
+      <input id="global-search" placeholder="搜索单号、客户或商品" aria-label="搜索单号、客户或商品" title="按 / 键快速聚焦搜索" autocomplete="off">
+      <button class="hs-clear" type="button" data-action="clear-search" aria-label="清空搜索" hidden><svg><use href="#i-close"/></svg></button>
+      <div id="search-results" class="search-results" hidden></div>
+    </div>
+    <button class="new-order-button" data-action="new"><svg><use href="#i-plus"/></svg>新建送货单</button>
+    <button class="local-account" data-module="settings" aria-label="本机设置"><span>宝</span><span><b>本机工作台</b></span><svg><use href="#i-chevron"/></svg></button>
+  </header>
+
+  <nav class="navigation" aria-label="功能导航">
+    <div class="navigation-main">
+      <button class="nav-item active" data-module="home" title="工作台" aria-label="工作台" aria-current="page"><svg><use href="#i-grid"/></svg><span>工作台</span></button>
+      <button class="nav-item" data-module="orders" title="送货单" aria-label="送货单"><svg><use href="#i-file"/></svg><span>送货单</span></button>
+      <button class="nav-item" data-module="products" title="商品资料" aria-label="商品资料"><svg><use href="#i-box"/></svg><span>商品</span></button>
+      <button class="nav-item" data-module="customers" title="客户资料" aria-label="客户资料"><svg><use href="#i-people"/></svg><span>客户</span></button>
+      <button class="nav-item" data-module="stats" title="统计对账" aria-label="统计对账"><svg><use href="#i-chart"/></svg><span>对账</span></button>
+    </div>
+    <div class="navigation-bottom"><span class="nav-divider"></span><button class="nav-item" data-module="settings" title="设置" aria-label="设置"><svg><use href="#i-settings"/></svg><span>设置</span></button><span class="version">V 1.0</span></div>
+  </nav>
+
+  <main class="workspace fixed-workspace">
+    <div class="scene-surface" id="scene-surface">
+      <canvas id="warehouse" aria-label="仓库业务导航示意图，功能也可通过左侧导航操作"></canvas>
+      <div class="scene-vignette"></div>
+      <div class="scene-markers" id="scene-markers"></div>
+      <div class="scene-loading" id="scene-loading"><span></span>正在布置你的送货现场…</div>
+    </div>
+
+    <div class="fixed-workspace-heading"><h1>送货现场</h1><span id="today-label"></span></div>
+
+    <div class="scene-tool-row">
+      <div class="scene-breadcrumb"><svg><use href="#i-home"/></svg><span id="scene-section">场景总览</span><span class="scene-breadcrumb-slash">/</span><span id="scene-context">从一张送货单开始</span></div>
+      <div class="scene-tools"><button data-action="reset-view" title="回到总览" aria-label="回到总览"><svg><use href="#i-expand"/></svg></button><button data-action="motion" title="暂停场景动画" aria-label="暂停场景动画" aria-pressed="false"><svg><use href="#i-pause"/></svg></button><span></span><button data-action="lighting" title="切换日夜场景" aria-label="切换日夜场景" aria-pressed="false"><svg><use href="#i-sun"/></svg></button></div>
+    </div>
+
+    <section id="dispatch-panel" class="fixed-pane dispatch-pane" aria-labelledby="dispatch-title">
+      <header class="fixed-pane-heading"><h2 id="dispatch-title">今日送货</h2><button class="fixed-text-button" data-action="dispatch-expand">全部单据</button></header>
+      <div id="dispatch-body" class="fixed-pane-body" data-desktop-scroll></div>
+      <div id="dispatch-collection" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
+    </section>
+    <section id="statistics-panel" class="fixed-pane statistics-pane" aria-labelledby="statistics-title">
+      <header class="fixed-pane-heading"><h2 id="statistics-title">统计对账</h2><button class="fixed-text-button" data-action="statistics-expand">展开</button></header>
+      <div id="statistics-summary" class="fixed-pane-body"></div>
+      <div id="statistics-view" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
+    </section>
+    <section id="context-panel" class="fixed-pane selection-pane" aria-labelledby="selection-title">
+      <header class="fixed-pane-heading"><h2 id="selection-title">当前单据</h2><button class="fixed-text-button" data-action="selection-expand">详细查看</button></header>
+      <div id="selection-summary" class="fixed-pane-body"></div>
+      <div id="selection-view" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
+      <div id="selection-actions" class="fixed-selection-actions" hidden></div>
+    </section>
+
+    <div class="scene-footnote"><i></i><span>场景用于业务导航，不代表实时库存或物流状态</span><span class="scene-render-note">NATIVE 3D</span></div>
+  </main>

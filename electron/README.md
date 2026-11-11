@@ -1,162 +1,94 @@
-# 送货单统计 · 电脑版（Electron）
+# 送货宝 · 独立 Electron 项目
 
-这是「送货单统计」的桌面壳程序。它**复用 Android 版同一套前端代码**（`index.html` + `js/` + `css/`），
-只在主进程里把原本 Android WebView 的四个原生能力（保存文件、选择文件、打印、分享）
-换成 Electron 的实现，因此账务逻辑、界面、数据格式与手机版完全一致。
+所有业务页面、脚本、样式、品牌资源和 3D 引擎都由本目录维护。开发、测试和打包不需要相邻项目目录，正式入口为 `webapp/index.html`。
 
-> 数据仍然**纯本地、离线**保存（Electron 的 localStorage，存在系统的用户数据目录里）。
+## 源码结构
 
----
-
-## 目录结构
-
+```text
+electron/
+├─ main.js / preload.js       # 原生窗口、文件、图片和打印桥
+├─ webapp/
+│  ├─ index.html              # 唯一业务入口
+│  ├─ js/views/               # 开单、单据、客户、商品、统计、账单、打印、设置
+│  ├─ js/store.js             # 原有业务存储和 JSON 备份格式
+│  ├─ css/ / assets/          # 业务样式和品牌资源
+│  └─ vendor/three.min.js     # 唯一 Three.js 运行资源
+├─ renderer/
+│  ├─ desktop.js             # 唯一路由、模块窗口和场景调度
+│  ├─ warehouse-scene.js      # 唯一 3D 场景维护源
+│  ├─ desktop.css
+│  ├─ src/                   # 外壳 HTML 模板和原始外壳 CSS
+│  └─ generated/             # 自动生成，不手改、不提交
+├─ scripts/                  # 构建和安装包核验
+├─ tests/                    # 独立临时数据目录的回归与性能测量
+└─ docs/                     # 历史设计记录，不参与运行或构建
 ```
-delivery-note/
-├─ android/                         # 手机版（原有，未改动）
-│  └─ app/src/main/assets/app/      # ← 桌面版直接加载这里的前端资源
-└─ electron/                        # 电脑版（本次新增）
-   ├─ package.json
-   ├─ main.js                       # 主进程：窗口、菜单、四个原生能力
-   ├─ preload.js                    # 注入 window.Android 桥，前端零改动
-   └─ README.md
-```
 
-`main.js` 开发时直接 `loadFile` 到 `../android/app/src/main/assets/app/index.html`；
-打包时通过 `package.json` 的 `extraResources` 把这套前端资源复制进安装包。
+## 安装依赖与启动
 
----
+在本目录安装依赖后运行：
 
-## 一、准备环境（只需一次）
-
-1. **安装 Node.js**（建议 18 或 20 LTS 以上）：<https://nodejs.org/>
-   安装后在终端确认：
-   ```bash
-   node -v
-   npm -v
-   ```
-
-2. **进入 electron 目录并安装依赖**：
-   ```bash
-   cd delivery-note/electron
-   npm install
-   ```
-   > 若下载 Electron 慢，可先设置国内镜像再安装：
-   > ```bash
-   > # Windows PowerShell
-   > $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-   > npm install
-   > ```
-   > macOS / Linux：
-   > ```bash
-   > ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/" npm install
-   > ```
-
----
-
-## 二、启动（开发/日常使用）
-
-在 `delivery-note/electron` 目录执行：
-
-```bash
+```powershell
+npm install
 npm start
-```
-
-就会打开「送货单统计」桌面窗口。
-
-带开发者工具启动（排查问题时用）：
-
-```bash
+# 开发启动
 npm run dev
 ```
-> 之后按 `Ctrl+Shift+I`（macOS 为 `Cmd+Option+I`）可随时打开/关闭开发者工具。
 
----
+仓库保留 `pnpm-lock.yaml`，也可使用 `pnpm install --frozen-lockfile` 安装锁定依赖。现有 Electron 和 electron-builder 版本未升级。
 
-## 三、打包成安装程序（可选，发给客户用）
+启动及构建前会自动运行 `scripts/build-desktop-assets.cjs`。它只读取 `renderer/src/`，生成 `renderer/generated/shell.js` 和 `workspace.css`，不读取设计原型或外部项目。
 
-```bash
-# Windows：生成 dist/ 下的安装包（.exe，NSIS）
-npm run build:win
+## 打包
 
-# macOS：生成 .dmg
-npm run build:mac
-
-# Linux：生成 .AppImage
-npm run build:linux
+```powershell
+npm run build:win       # Windows x64 NSIS 安装包
+npm run build:win:dir   # Windows 解包目录
+npm run verify:package # 源文件/安装包内容/启动自检
 ```
 
-生成的安装包在 `electron/dist/` 目录里。把对应安装包发给客户，双击安装即可。
+产物位于 `dist/`。业务资源和桌面资源一起进入 `resources/app.asar`，开发和生产采用相同相对目录。Windows 图标来自本项目 `webapp/assets/brand/dns-icon-512.png`。
 
----
+macOS / Linux 的构建命令保留为 `npm run build:mac` / `npm run build:linux`，本轮只验证 Windows 构建。安装包尚未配置商业代码签名。
 
-## 四、桌面版快捷键
+## 数据与兼容
 
-| 快捷键 | 功能 |
-|---|---|
-| `Ctrl/Cmd + N` | 新建送货单 |
-| `Ctrl/Cmd + L` | 单据列表 |
-| `Ctrl/Cmd + P` | 打印当前页（可「另存为 PDF」）|
-| `Ctrl/Cmd + 滚轮` | 缩放界面 |
-| `Ctrl/Cmd + Shift + I` | 开发者工具 |
+- 应用名 `songhuodan-desktop`、appId `com.songhuodan.desktop`、默认 userData 位置和全部 `sd_v1_*` 业务键保持原有值。
+- 通过临时旧 file 路径、退出进程、再启动新入口验证已有单据、客户、商品、图片路径、一客一价、序号和桌面偏好可读。
+- 商品初始化目录升级可能补充新的内置商品；迁移测试同时确认原有用户记录及已设价格保持原值。
+- JSON 备份继续使用 `songhuodan` / version 1 格式。迁移与回归均使用独立临时 profile，不操作日常业务数据。
+- 图片默认位于程序同级 `CommercesData/`，也可在设置中选择目录。JSON 只记录图片路径，跨电脑迁移还需复制图片文件并调整目录。
+- 同一 profile 仅允许一个应用实例写入。请继续定期导出备份；多键 localStorage 仍不保证断电时的事务原子性。
 
----
+## 场景与性能
 
-## 五、和手机版的能力对照
+首页保留仓库场景及真实业务指标。打开业务模块时画面静止，返回首页复用同一场景。隐藏/最小化窗口时暂停，关闭场景、手动暂停及系统减少动态效果设置均生效。帧率上限 30 FPS，像素比上限 1.25。
 
-| 能力 | 手机版（Android） | 电脑版（Electron） |
-|---|---|---|
-| 保存导出文件 | 写入「下载/送货单统计」 | 弹出「另存为」对话框 |
-| 选择导入文件 | 系统文件选择器 | 系统文件选择器 |
-| 打印 / 存 PDF | 系统打印服务 | 系统打印 / 另存为 PDF |
-| 分享文件 | 分享到微信等 | 保存到「下载/送货单统计」并定位文件 |
-| 商品图片 | 相册 / 拍照 | 选择本地图片，复制到本地目录保存 |
+工作台采用已选定的**固定分区**：左侧今日送货，右上统计对账，右下当前单据。左侧范围切换不改变今日汇总；选中历史单据也不会把旧单号混入今日信息。
 
----
+全部单据和完整统计在原分区展开，详情使用固定阅读区域。新建/编辑、商品、客户和本机设置仍使用任务窗口；关闭任务回到原记录，保留列表筛选和阅读位置。打印与月度账单进入专用阅读区，提供返回原位置入口。门口是装饰，货车打开固定单据区，模型/名称/导航映射到相同模块。
 
-## 六、商品图片
+经营汇总按 Store 成功提交的 revision 和日期缓存；数据更新会失效缓存。场景销毁时释放监听、观察器、几何体、材质、纹理、阴影和 WebGL 上下文。
 
-- 商品管理的新增 / 编辑表单里可以为商品上传一张封面图片，图片会复制到**本地文件夹**，
-  全程不发起任何网络请求。
-- 默认目录为程序所在目录（打包后是 exe 同级，开发时是 `electron/`）下的 `CommercesData` 文件夹。
-- 可在「设置 → 商品图片 → 图片存储位置」里**更改文件夹**、**打开文件夹**或**恢复默认**。
-- 图片以本地文件路径记录在商品资料中，通过应用内的 `sdimg://` 协议读取显示；
-  数据仍保存在本机，不上传。
+销售趋势采用固定范围的列宽和明确间距；多日期可横向滚动，柱顶高度保留比例，日期标签不会互相挤压。
 
----
+## 验证
 
-## 七、3D 工作台背景
+```powershell
+npm test                 # 数据逻辑 + 无外部目录的复制启动验证
+npm run test:ui          # 开单/复制/校验/失败重试/统计/打印内容
+npm run test:desktop     # 正式入口、持久化、导航、备份、窗口和打印 PDF
+npm run test:workspace   # 固定分区、真实鼠标点击、门口/货车、位置恢复和布局
+npm run test:migration   # 旧路径 profile、备份、价格、图片和序号兼容
+npm run test:3d          # 暂停恢复、生命周期、资源释放、趋势布局
+npm run test:native      # 文件 IPC、取消/错误、图片复制和打印派发
+npm run test:performance # 实际帧数和 5000 单据测量
+```
 
-- 首页可铺一层等距微缩「送货沙盘」：货架、月台、货车、叉车、门店、数据展台，
-  随真实单据实时变化（单据数→箱堆/货车，金额→货架填充，销量前三→展台高度，客户数→门店）。
-- **默认关闭**：打开应用就是原来那个干净的界面，不影响日常开单、记账、打印；
-  需要演示时到「设置 → 基础资料 → 3D 工作台背景」里打开。
-- 打开后默认是**柔化**档：加一层纸色白纱并自动降档，文字始终清晰；
-  需要完整画面可在下面把「背景强度」切成「全开」。
-- 场景直接挂在主页面（`3d/scene.js`），**没有 iframe、不走网络**，纯本地渲染。
-- 自动省电：窗口 <900px 不渲染；按窗口宽度自动调档（精简/标准/高）；
-  帧率过低会逐级降档；场景不可用（无 WebGL、脚本加载失败）时自动回退静态背景图。
-- 当前帧率与画质档位在「设置 → 3D 工作台背景」那一行里实时显示（页面上不再有常驻角标）。
-- 设计与实现说明见 [`docs/3d-background/`](docs/3d-background/scene-spec.md)。
+运行测量、截图和安装包核验日志写入 `.shots/standalone/`；业务回归截图/PDF 写入 `.shots/electron-live/`。
 
----
+固定分区实测截图、PDF 和 12 组验收结果位于 `.shots/fixed-workspace/`，变更说明见 [固定分区验收](docs/fixed-workspace-2026-11-09.md)。
 
-## 八、数据在哪、如何备份
+固定分区本次验收的独立安装包位于 `dist/fixed-workspace/`，使用 `node scripts/verify-desktop-package.cjs dist/fixed-workspace` 核验；默认构建命令仍输出到 `dist/`。
 
-- 桌面版业务数据保存在系统的用户数据目录（Electron `userData`）里的 localStorage。
-- 商品图片保存在本地的 `CommercesData` 文件夹（默认），可随程序目录一起备份。
-- 备份/恢复仍然用设置页的「导出备份 / 恢复备份」（JSON 文件），跨手机、跨电脑通用。
-- 迁移：在 A 电脑「导出备份」，把 JSON 拷到 B 电脑「恢复备份」即可。
-
----
-
-## 常见问题
-
-**Q：`npm install` 卡住 / 下载 Electron 失败？**
-设置上面的 `ELECTRON_MIRROR` 镜像后重试。
-
-**Q：启动报 `Cannot find module 'electron'`？**
-说明依赖没装成功，回到 `electron/` 目录重新 `npm install`。
-
-**Q：窗口打不开、白屏？**
-确认 `../android/app/src/main/assets/app/index.html` 存在（前端资源没被挪走）。
-打包后则确认安装包里带了 `webapp` 资源。
+原生测试保留真实 preload/IPC/文件读写，文件对话框返回值和系统打印回调由测试替代，不会向物理打印机出纸。Windows EXE 直接启动的环境限制与本轮完整记录见 [独立迁移验收](docs/standalone-2026-11-09.md)。

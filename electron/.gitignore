@@ -1,5 +1,6 @@
 node_modules/
 dist/
+renderer/generated/
 *.log
 
 # 临时截图自检产物
@@ -7,6 +8,15 @@ dist/
 
 # 商品图片默认存储目录（运行时生成）
 CommercesData/
+
+# 业务数据目录与目录外备份（运行时生成，含真实单据/客户/价格，绝不提交）
+用户数据/
+数据备份/
+送货单统计数据备份/
+
+# 临时验证脚本（本地排查用，不属于交付物）
+.tmp-probe/
+.probe*.js
 
 # 本地工具 / ACL 诊断恢复产物，不提交
 .claude/

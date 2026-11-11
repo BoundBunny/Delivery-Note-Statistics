@@ -2,16 +2,42 @@
   "name": "songhuodan-desktop",
   "version": "1.0.0",
   "private": true,
-  "description": "送货单统计 — 电脑版（Electron 桌面壳）",
+  "description": "送货宝 — 独立 Electron 桌面应用",
   "main": "main.js",
   "author": "",
   "license": "MIT",
   "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "test:ui": "node tests/run-ui.cjs",
+    "test:3d": "node tests/run-ui.cjs scene-regression.cjs",
+    "test:desktop": "node tests/run-ui.cjs desktop-regression.cjs",
+    "build:desktop-assets": "node scripts/build-desktop-assets.cjs",
+    "prestart": "npm run build:desktop-assets",
+    "predev": "npm run build:desktop-assets",
+    "pretest:desktop": "npm run build:desktop-assets",
+    "prebuild:win": "npm run build:desktop-assets",
+    "prebuild:mac": "npm run build:desktop-assets",
+    "prebuild:linux": "npm run build:desktop-assets",
+    "build:win:dir": "npm run build:desktop-assets && electron-builder --win --x64 --dir",
     "start": "electron .",
     "dev": "electron . --dev",
     "build:win": "electron-builder --win --x64",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "test:performance": "node tests/run-ui.cjs performance.cjs",
+    "test:migration": "node tests/run-ui.cjs migration-regression.cjs",
+    "verify:package": "node scripts/verify-desktop-package.cjs",
+    "pretest:ui": "npm run build:desktop-assets",
+    "pretest:3d": "npm run build:desktop-assets",
+    "pretest:performance": "npm run build:desktop-assets",
+    "pretest:migration": "npm run build:desktop-assets",
+    "test:native": "node tests/run-ui.cjs native-regression.cjs",
+    "pretest:native": "npm run build:desktop-assets",
+    "pretest": "npm run build:desktop-assets",
+    "test:workspace": "node tests/run-ui.cjs fixed-workspace.cjs",
+    "pretest:workspace": "npm run build:desktop-assets",
+    "test:audit": "node tests/run-ui.cjs logic-audit-ui.cjs",
+    "pretest:audit": "npm run build:desktop-assets"
   },
   "devDependencies": {
     "electron": "^31.7.7",
@@ -19,23 +45,33 @@
   },
   "build": {
     "appId": "com.songhuodan.desktop",
-    "productName": "送货单统计",
+    "productName": "送货宝",
     "directories": {
       "output": "dist"
     },
-    "extraResources": [
-      {
-        "from": "../android/app/src/main/assets/app",
-        "to": "webapp"
-      }
-    ],
     "files": [
       "main.js",
-      "preload.js"
+      "preload.js",
+      "lib/**/*",
+      "renderer/desktop.js",
+      "renderer/desktop.css",
+      "renderer/warehouse-scene.js",
+      "renderer/generated/**/*",
+      "webapp/**/*"
     ],
+    "afterPack": "scripts/after-pack-clean.cjs",
     "win": {
       "target": "nsis",
-      "icon": "../android/app/src/main/assets/app/assets/brand/dns-icon-512.png"
+      "icon": "webapp/assets/brand/dns-icon-512.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": "dmg",
@@ -45,5 +81,8 @@
       "target": "AppImage",
       "category": "Office"
     }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true
   }
 }

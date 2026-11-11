@@ -1,0 +1,37 @@
+'use strict';
+const {app,BrowserWindow,dialog}=require('electron');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
+const ROOT=path.resolve(__dirname,'..'),temp=fs.mkdtempSync(path.join(os.tmpdir(),'dns-native-'));
+app.setPath('userData',path.join(temp,'profile'));app.disableHardwareAcceleration();
+let savePath=path.join(temp,'备份.json'),canceled=false,openPath;
+dialog.showSaveDialog=async()=>({canceled,filePath:savePath});
+dialog.showOpenDialog=async()=>({canceled,filePaths:openPath?[openPath]:[]});
+const pause=ms=>new Promise(r=>setTimeout(r,ms));const timeout=setTimeout(()=>app.exit(1),30000);
+require(path.join(ROOT,'main.js'));
+app.whenReady().then(async()=>{
+  let win;for(let i=0;i<200;i++){win=BrowserWindow.getAllWindows()[0];if(win&&!win.webContents.isLoadingMainFrame()&&await win.webContents.executeJavaScript('!!window.DNSDesktop?.ready'))break;await pause(50);}
+  const js=code=>win.webContents.executeJavaScript(code,true);
+  await js('Store.clearAll();Store.setSettings({company:"原生保存测试"});void 0');
+  const saveCode=`Android.saveFile('备份.json','application/json',btoa(unescape(encodeURIComponent(Store.exportJSON()))))`;
+  assert.equal((await js(saveCode)).ok,true);const backup=fs.readFileSync(savePath,'utf8');assert.equal(JSON.parse(backup).data.settings.company,'原生保存测试');
+  console.log('PASS preload → IPC → native save writes exact UTF-8 backup bytes');
+  canceled=true;savePath=path.join(temp,'canceled.json');assert.equal((await js(saveCode)).canceled,true);assert.equal(fs.existsSync(savePath),false);
+  canceled=false;savePath=path.join(temp,'missing-folder/failure.json');assert.equal((await js(saveCode)).ok,false);assert.match(await js('document.getElementById("toast").textContent'),/保存失败/);
+  console.log('PASS save cancellation creates no file and write failure is reported');
+  openPath=path.join(temp,'备份.json');
+  assert.equal(await js('pickFileAsText(".json")'),backup);assert.equal(await js('Object.keys(window.__fileCallbacks||{}).length'),0);
+  canceled=true;assert.equal(await js('pickFileAsText(".json")'),null);assert.equal(await js('Object.keys(window.__fileCallbacks||{}).length'),0);canceled=false;
+  console.log('PASS import reads backup through the real preload callback and releases callbacks on cancel');
+  openPath=path.join(temp,'test.png');const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');fs.writeFileSync(openPath,png);
+  const image=await js('Android.pickProductImage('+JSON.stringify(path.join(temp,'images'))+')');assert.equal(image.ok,true);assert.ok(fs.readFileSync(image.path).equals(png));
+  assert.equal(await js('fetch(Android.imageUrl('+JSON.stringify(image.path)+')).then(r=>r.arrayBuffer()).then(b=>b.byteLength)'),png.length);
+  console.log('PASS product image is copied locally and read through sdimg without network');
+  openPath=path.join(temp,'not-an-image.txt');fs.writeFileSync(openPath,'not an image');assert.equal((await js('Android.pickProductImage('+JSON.stringify(path.join(temp,'images'))+')')).ok,false);
+  assert.equal(fs.readdirSync(path.join(temp,'images')).length,1);
+  console.log('PASS non-image selection is rejected without creating a broken image record');
+  let printed=false;win.webContents.print=(options,callback)=>{printed=options.printBackground&&!options.silent;callback(true);};
+  assert.equal((await js('Android.printPdf("测试送货单")')).ok,true);assert.equal(printed,true);
+  win.webContents.print=(_options,callback)=>callback(false,'test printer unavailable');assert.equal((await js('Android.printPdf("测试送货单")')).ok,false);assert.match(await js('document.getElementById("toast").textContent'),/打印失败/);
+  console.log('PASS system print dispatch and printer error reporting use the real IPC bridge');
+  clearTimeout(timeout);app.exit(0);
+}).catch(error=>{console.error(error);app.exit(1);});

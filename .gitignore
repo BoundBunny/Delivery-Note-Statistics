@@ -13,5 +13,10 @@ Thumbs.db
 # 临时文件
 *.tmp
 
+# Python 缓存
+__pycache__/
+*.pyc
+
 # ACL 诊断恢复产物（本地生成，不提交）
 acl-recovery/
+.dsh-acl-recovery/
