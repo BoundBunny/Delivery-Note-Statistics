@@ -25,7 +25,13 @@ Views.order = {
     };
     window.__orderDraft = null;
     // 复制新增时重生成单号
-    if (draft._copy) { draft.no = Store.nextOrderNo(draft.date); delete draft._copy; }
+    if (draft._copy) {
+      draft.id = null;
+      delete draft.createdAt;
+      delete draft.updatedAt;
+      draft.no = Store.nextOrderNo(draft.date);
+      delete draft._copy;
+    }
 
     const el = document.createElement('div');
     el.className = 'view active';
@@ -40,7 +46,7 @@ Views.order = {
           <div class="om-fields">
             <div class="field-row">
               <div class="field"><label class="lab">送货日期</label><input type="date" data-f="date" value="${esc(draft.date)}"></div>
-              <div class="field"><label class="lab">单号</label><div style="height:42px;display:flex;align-items:center;font-weight:600;font-size:14px;color:var(--amber-deep);overflow:hidden;white-space:nowrap">${esc(draft.no)}</div></div>
+              <div class="field"><label class="lab">单号</label><div data-role="order-no" style="height:42px;display:flex;align-items:center;font-weight:600;font-size:14px;color:var(--amber-deep);overflow:hidden;white-space:nowrap">${esc(draft.no)}</div></div>
             </div>
             <div class="field-row">
               <div class="field"><label class="lab">制单人</label><input data-f="operator" value="${esc(draft.operator)}" placeholder="选填"></div>
@@ -100,7 +106,7 @@ Views.order = {
       if (it && it.pid) p = Store.getProduct(it.pid);
       if (!p && it && it.name) {
         p = Store.listProducts(it.name).find(x =>
-          x.name === it.name || (x.name + ' ' + (x.spec || '')).trim() === (it.name + ' ' + (it.spec || '')).trim());
+          x.name === it.name && (x.spec || '') === (it.spec || ''));
       }
       return p && p.image ? p.image : '';
     };
@@ -231,6 +237,7 @@ Views.order = {
       mask.addEventListener('input', e => {
         if (e.target.matches('[data-role="qty"],[data-role="price"]')) updAmt();
         if (e.target.matches('[data-role="name"]')) { pickedPid = null; pickPage = 0; renderPicker(); }
+        if (e.target.matches('[data-role="spec"]')) { pickedPid = null; renderPicker(); }
       });
       mask.addEventListener('click', e => {
         if (e.target === mask) { mask.remove(); return; }
@@ -259,8 +266,14 @@ Views.order = {
           const name = val('name').trim();
           if (!name) { toast('请填写产品名称', true); return; }
           const qty = val('qty').trim(), price = val('price').trim();
+          if (!qty || !Number.isFinite(Number(qty)) || Number(qty) <= 0
+              || !Number.isFinite(Number(price)) || Number(price) < 0
+              || !Number.isSafeInteger(Math.round(Number(qty) * Number(price) * 100))) {
+            toast('请填写大于 0 的有效数量和非负单价，金额不能超出可计算范围', true);
+            return;
+          }
           const payload = {
-            pid: pickedPid || src.pid || null, name,
+            pid: pickedPid, name,
             spec: val('spec').trim(), unit: val('unit').trim(),
             qty, price, remark: src.remark || '',
             amount: Math.round((parseFloat(qty) || 0) * (parseFloat(price) || 0) * 100) / 100,
@@ -354,10 +367,30 @@ Views.order = {
     el.addEventListener('input', e => {
       const f = e.target.closest('[data-f]');
       if (!f) return;
+      if (f.dataset.f === 'date' && f.value && f.value !== draft.date && !draft.id) {
+        try {
+          draft.no = Store.nextOrderNo(f.value);
+          $('[data-role="order-no"]', el).textContent = draft.no;
+        } catch (error) {
+          f.value = draft.date;
+          return;
+        }
+      }
       draft[f.dataset.f] = f.value;
     });
 
     function save() {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || dateStr(dateOf(draft.date)) !== draft.date) {
+        toast('请填写有效的送货日期', true);
+        return;
+      }
+      if (!draft.items.length || draft.items.some(it => !String(it.name || '').trim()
+          || String(it.qty).trim() === '' || !Number.isFinite(Number(it.qty)) || Number(it.qty) <= 0
+          || !Number.isFinite(Number(it.price)) || Number(it.price) < 0
+          || !Number.isSafeInteger(Math.round(Number(it.qty) * Number(it.price) * 100)))) {
+        toast('请检查货品：名称必填、数量须大于 0、单价须非负，金额不能超出可计算范围', true);
+        return;
+      }
       const clean = draft.items.map(it => ({
         pid: it.pid,
         name: (it.name || '').trim(),
@@ -367,49 +400,50 @@ Views.order = {
         price: parseFloat(it.price) || 0,
         amount: Math.round((parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) * 100) / 100,
         remark: (it.remark || '').trim(),
-      })).filter(it => it.name && it.qty > 0);
+      }));
       if (!clean.length) { toast('请至少填写一行有效货品', true); return; }
       const total = Math.round(clean.reduce((a, it) => a + it.amount, 0) * 100) / 100;
+      if (!Number.isSafeInteger(Math.round(total * 100))) { toast('合计金额超出可计算范围', true); return; }
 
-      const custId = draft.customer ? draft.customer.id : null;
-      // 自动记忆：客户、商品、一客一价
-      if (draft.customer && draft.customer.name && !custId) {
-        const c = Store.upsertCustomer({
-          name: draft.customer.name, phone: draft.customer.phone || '', address: draft.customer.address || '', contact: draft.customer.contact || '',
-        });
-        draft.customer = { id: c.id, name: c.name, phone: c.phone || '', address: c.address || '', contact: c.contact || '' };
-      }
-      clean.forEach(it => {
-        if (it.pid) Store.setLastPrice(custId, it.pid, it.price);
-      });
-      clean.forEach(it => {
-        if (!it.pid && it.name) {
-          const comb = it.name + (it.spec ? ' ' + it.spec : '');
-          const p = Store.listProducts(it.name).find(x => x.name === it.name || ((x.name || '') + (x.spec ? ' ' + x.spec : '')) === comb);
-          if (!p) {
-            const np = Store.upsertProduct({ name: it.name, spec: it.spec, unit: it.unit, price: it.price || undefined });
-            it.pid = np.id;
-          } else { it.pid = p.id; }
-        }
-      });
-
-      const payload = {
-        no: draft.no || Store.nextOrderNo(draft.date),
-        date: draft.date || todayStr(),
-        operator: (draft.operator || '').trim(),
-        note: (draft.note || '').trim(),
-        customer: draft.customer ? { ...draft.customer } : null,
-        items: clean,
-        total,
-      };
       let saved;
-      if (draft.id) {
-        saved = Store.updateOrder(draft.id, payload);
-        toast('单据已更新');
-      } else {
-        saved = Store.addOrder(payload);
-        toast('送货单已保存');
+      try {
+        saved = Store.transaction(() => {
+          // Resolve identities first, including manually entered specifications.
+          let customer = draft.customer ? { ...draft.customer } : null;
+          if (customer && customer.name && !customer.id) {
+            const c = Store.upsertCustomer({
+              name: customer.name, phone: customer.phone || '', address: customer.address || '', contact: customer.contact || '',
+            });
+            customer = { id: c.id, name: c.name, phone: c.phone || '', address: c.address || '', contact: c.contact || '' };
+          }
+          clean.forEach(it => {
+            if (!it.pid || !Store.getProduct(it.pid)) {
+              const p = Store.listProducts(it.name).find(x => x.name === it.name && (x.spec || '') === it.spec);
+              const product = p || Store.upsertProduct({ name: it.name, spec: it.spec, unit: it.unit, price: it.price });
+              it.pid = product.id;
+            }
+          });
+          const custId = customer ? customer.id : null;
+          clean.forEach(it => Store.setLastPrice(custId, it.pid, it.price));
+          const payload = {
+            no: draft.no || Store.nextOrderNo(draft.date),
+            date: draft.date || todayStr(),
+            operator: (draft.operator || '').trim(),
+            note: (draft.note || '').trim(),
+            customer,
+            items: clean,
+            total,
+          };
+          if (!draft.id) return Store.addOrder(payload);
+          const updated = Store.updateOrder(draft.id, payload);
+          if (!updated) throw new Error('单据已不存在，请返回单据列表重新打开');
+          return updated;
+        });
+      } catch (error) {
+        toast(error.message || '保存失败', true);
+        return;
       }
+      toast(draft.id ? '单据已更新' : '送货单已保存');
       location.hash = '#/order/view?id=' + saved.id;
     }
 

@@ -210,6 +210,21 @@
     '</styleSheet>';
 
   function build(sheets) {
+    // Customer names become sheet names. Sanitize them centrally and retain
+    // uniqueness after truncation (Excel compares names without case).
+    var usedNames = new Set();
+    var sheetNames = sheets.map(function (sheet, index) {
+      var base = String(sheet.name || '').replace(/[\\/\[\]:*?\u0000-\u001f]/g, '_').trim().replace(/^'+|'+$/g, '');
+      if (!base) base = 'Sheet' + (index + 1);
+      var name = base.slice(0, 31).replace(/'+$/g, '');
+      var suffix = 1;
+      while (usedNames.has(name.toLowerCase())) {
+        var tail = ' (' + (++suffix) + ')';
+        name = base.slice(0, 31 - tail.length) + tail;
+      }
+      usedNames.add(name.toLowerCase());
+      return name;
+    });
     var files = [];
     var sheetRels = '';
     var sheetOverrides = '';
@@ -223,7 +238,7 @@
 
     var sheetTags = '';
     for (var s = 0; s < sheets.length; s++) {
-      sheetTags += '<sheet name="' + escXml(String(sheets[s].name || '').slice(0, 31)) + '" sheetId="' + (s + 1) + '" r:id="rId' + (s + 1) + '"/>';
+      sheetTags += '<sheet name="' + escXml(sheetNames[s]) + '" sheetId="' + (s + 1) + '" r:id="rId' + (s + 1) + '"/>';
     }
 
     var workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

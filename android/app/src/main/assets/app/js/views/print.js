@@ -131,7 +131,7 @@ function drawDocToCanvas(o, s) {
       ctx.textAlign = 'center';
       ctx.fillText(String(i + 1), colX[0] + cols[0] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
-      ctx.fillText(fmt(it.name), colX[1] + 4, y + ROW_H / 2, cols[1] - 8);
+      ctx.fillText([fmt(it.name), fmt(it.spec)].filter(Boolean).join(' '), colX[1] + 4, y + ROW_H / 2, cols[1] - 8);
       ctx.textAlign = 'center';
       ctx.fillText(fmt(it.unit), colX[2] + cols[2] / 2, y + ROW_H / 2, cols[2] - 8);
       ctx.fillText(fmtNum(it.qty), colX[3] + cols[3] / 2, y + ROW_H / 2);
@@ -238,7 +238,7 @@ Views.print = {
               ${rows.map((it, i) => it ? `
                 <tr>
                   <td>${i + 1}</td>
-                  <td>${esc(it.name)}</td>
+                  <td>${esc([it.name, it.spec].filter(Boolean).join(' '))}</td>
                   <td>${esc(it.unit || '')}</td>
                   <td class="doc-num">${fmtNum(it.qty)}</td>
                   <td class="doc-num">${fmtMoney(it.price)}</td>

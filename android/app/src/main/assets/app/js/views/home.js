@@ -82,6 +82,12 @@ Views.home = {
       return '晚上好';
     })();
     const name = s.operator || '老板';
+    // 各分类商品数（口径与商品管理一致；bg3d.js 提供，缺失时按 0 显示）
+    const catCounts = (typeof window.DNSCatCounts === 'function') ? (window.DNSCatCounts() || {}) : {};
+    const catN = k => {
+      const n = Number(catCounts[k]) || 0;
+      return `<span class="hs-chip-n${n ? '' : ' zero'}" data-cat-n="${k}">${n}</span>`;
+    };
 
     el.innerHTML = `
       <div class="topbar">
@@ -108,6 +114,36 @@ Views.home = {
         <button class="btn btn-primary btn-block home-create-order" data-go="order">
           开 送 货 单
         </button>
+
+        <section class="home-stage" id="home-stage" aria-label="仓库沙盘">
+          <div class="hs-view" id="hs-view">
+            <div class="hs-kpi" id="hs-kpi" aria-label="沙盘实时指标">
+              <div class="hs-kpi-item"><b id="hs-kpi-orders">—</b><span>今日单据</span></div>
+              <div class="hs-kpi-item"><b id="hs-kpi-amount">—</b><span>今日金额</span></div>
+              <div class="hs-kpi-item"><b id="hs-kpi-month">—</b><span>本月单据</span></div>
+              <div class="hs-kpi-item"><b id="hs-kpi-customers">—</b><span>客户总数</span></div>
+            </div>
+            <div class="hs-tip" id="hs-tip" aria-hidden="true"></div>
+          </div>
+          <aside class="hs-side">
+            <div class="hs-side-title">商品 6 大分类</div>
+            <div class="hs-chips" id="hs-chips">
+              <button type="button" class="hs-chip" data-go="products?cat=snack"><i style="background:#D97706"></i>休闲零食类${catN('snack')}</button>
+              <button type="button" class="hs-chip" data-go="products?cat=drink"><i style="background:#2563EB"></i>酒水饮料类${catN('drink')}</button>
+              <button type="button" class="hs-chip" data-go="products?cat=candy"><i style="background:#DB2777"></i>糖果巧克力类${catN('candy')}</button>
+              <button type="button" class="hs-chip" data-go="products?cat=grain"><i style="background:#059669"></i>粮油副食类${catN('grain')}</button>
+              <button type="button" class="hs-chip" data-go="products?cat=daily"><i style="background:#4F46E5"></i>日用百货类${catN('daily')}</button>
+              <button type="button" class="hs-chip" data-go="products?cat=tobacco"><i style="background:#7C3AED"></i>香烟烟草类${catN('tobacco')}</button>
+            </div>
+            <div class="hs-mods" id="hs-mods">
+              <button type="button" class="hs-mod" data-go="order" data-module="order">开单</button>
+              <button type="button" class="hs-mod" data-go="orders" data-module="orders">单据</button>
+              <button type="button" class="hs-mod" data-go="customers" data-module="customers">客户</button>
+              <button type="button" class="hs-mod" data-go="stats" data-module="stats">统计</button>
+            </div>
+            <div class="hs-side-tip">车辆与托盘仅作场景示意</div>
+          </aside>
+        </section>
 
         <div class="section-title">商品销量排行 <span class="sales-rank-period">累计 · 前三</span></div>
         <section class="card sales-rank" aria-label="商品销量前三">

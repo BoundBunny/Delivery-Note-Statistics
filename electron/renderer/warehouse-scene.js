@@ -369,11 +369,18 @@ window.createDNSWorkspaceScene = function (options) {
     contentSizes = null; // 新增标记后内容尺寸要重测
   }
 
+  function paintOnce() {
+    // 暂停/单帧模式下也需要能立刻画一帧：窗口缩放、显隐切换后画布缓冲会被清空，
+    // 如果不补这一帧，画布就只剩空白，而 DOM 标签还在（表现为“场景空白只剩标签”）。
+    if (disposed || document.hidden) return;
+    try { updateCamera(1); renderer.render(scene, camera); updateMarkers(); needsFrame = false; } catch (_) { /* ignore */ }
+  }
   function size() {
     width = Math.max(1, host.clientWidth); height = Math.max(1, host.clientHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, options.pixelRatioCap || 1.6));
     renderer.setSize(width, height, false);
     desiredHeight = width < 700 ? 38 : width < 1150 ? 33 : 30;
-    invalidate();
+    if (paused) paintOnce(); else invalidate();
   }
   function updateCamera(dt) {
     target.lerp(desiredTarget, motion ? Math.min(1, dt * 3.5) : 1);
@@ -488,6 +495,12 @@ window.createDNSWorkspaceScene = function (options) {
   const resizeObserver = new ResizeObserver(size); resizeObserver.observe(host);
   const visibilityChanged = () => { if(document.hidden){cancelAnimationFrame(frame);frame=0;}else{last=performance.now();invalidate();} };
   const motionChanged = () => { motion=userMotion&&!reducedQuery.matches;invalidate(); };
+  // 应用窗口放大/缩小或显卡驱动抖动可能导致 WebGL 上下文丢失；恢复后必须补画一帧，
+  // 否则会出现“3D 场景空白、只剩 DOM 标签”的现象。
+  const contextLost = event => { if(event && event.preventDefault) event.preventDefault(); cancelAnimationFrame(frame); frame=0; console.warn('[3D] WebGL 上下文丢失，等待恢复'); };
+  const contextRestored = () => { console.info('[3D] WebGL 上下文已恢复，重绘场景'); needsFrame=true; last=performance.now(); paintOnce(); if(!paused) invalidate(); };
+  canvas.addEventListener('webglcontextlost', contextLost);
+  canvas.addEventListener('webglcontextrestored', contextRestored);
   document.addEventListener('visibilitychange', visibilityChanged);
   reducedQuery.addEventListener('change', motionChanged);
   size(); updateCamera(1); document.getElementById('scene-loading').hidden = true; invalidate();
@@ -534,7 +547,7 @@ window.createDNSWorkspaceScene = function (options) {
       const cash=value=>(Number(value)||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
       const marker=kind=>markers.find(m=>m.kind===kind&&!m.category);
       const write=(kind,label,detail,title)=>{const m=marker(kind);if(!m)return;m.el.querySelector('.marker-number').textContent=label;m.el.querySelector('small').textContent=detail;if(title)m.el.querySelector('.marker-title').textContent=title;m.el.title=[title||m.title,label,detail].filter(Boolean).join(' · ');};
-      write('orders',(data.todayCount||0)+' 张','今日金额 ¥'+cash(data.todayAmount),'今日送货');
+      write('orders',(data.todayCount||0)+' 张','今日金额 ¥'+cash(data.todayAmount),'送货单');
       write('new','新建送货单','选择客户 · 录入货品 · 保存打印');
       write('customers',(data.customerCount||0)+' 位','客户资料与本月往来账单');
       write('stats','¥'+cash(data.monthAmount),(data.month||'本月')+' · '+(data.monthCount||0)+' 张单据');
@@ -559,12 +572,15 @@ window.createDNSWorkspaceScene = function (options) {
       document.body.classList.toggle('is-night',night);invalidate();return night;
     },
     stats(){return {calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,frame:renderer.info.render.frame,motion,night,paused,disposed,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,fps:motion&&!paused?fps:0};},
+    // 窗口尺寸变化后由外部调用：无论动画开/关、暂停与否，立即重画一帧，避免画布空白。
+    repaint(){ if(disposed)return; if(paused) paintOnce(); else { needsFrame=true; invalidate(); } },
     project(x,y,z){const p=new THREE.Vector3(x,y,z).project(camera),r=canvas.getBoundingClientRect();return {x:r.left+(p.x+1)/2*r.width,y:r.top+(1-p.y)/2*r.height};},
     pause(){paused=true;cancelAnimationFrame(frame);frame=0;},
     resume(){if(disposed||!paused)return;paused=false;last=performance.now();paintedFrames=0;fpsWindow=last;invalidate();},
     dispose(){
       if(disposed)return;disposed=true;paused=true;cancelAnimationFrame(frame);frame=0;resizeObserver.disconnect();
       document.removeEventListener('visibilitychange',visibilityChanged);reducedQuery.removeEventListener('change',motionChanged);
+      canvas.removeEventListener('webglcontextlost',contextLost);canvas.removeEventListener('webglcontextrestored',contextRestored);
       canvas.removeEventListener('pointermove',onPointerMove);canvas.removeEventListener('pointerdown',onPointerDown);canvas.removeEventListener('pointerup',onPointerUp);
       const allGeometries=new Set(geometries.values()),allMaterials=new Set(materials.values()),textures=new Set();
       scene.traverse(object=>{if(object.geometry)allGeometries.add(object.geometry);for(const material of [].concat(object.material||[]))allMaterials.add(material);});

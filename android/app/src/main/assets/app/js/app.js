@@ -3,7 +3,32 @@
  * ============================================================ */
 'use strict';
 
-(function () {
+(function startApp(classic) {
+  if (!classic && window.Android && window.Android.isDesktop && window.Android.desktopAssetsUrl) {
+    const base = window.Android.desktopAssetsUrl;
+    const pending = [];
+    const loadScript = src => new Promise((resolve, reject) => {
+      const script = document.createElement('script'); script.src = src;
+      script.onload = resolve; script.onerror = reject;
+      document.head.appendChild(script); pending.push(script);
+    });
+    const loadStyle = src => new Promise((resolve, reject) => {
+      const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = src;
+      link.onload = resolve; link.onerror = reject;
+      document.head.appendChild(link); pending.push(link);
+    });
+    (async () => {
+      await Promise.all([loadStyle(base + 'workspace.css'), loadStyle(base + 'desktop.css'), loadScript(base + 'shell.js')]);
+      await loadScript(base + 'desktop.js');
+      window.DNSDesktop.start();
+    })().catch(error => {
+      if (window.DNSDesktop && window.DNSDesktop.destroy) window.DNSDesktop.destroy();
+      pending.forEach(node => node.remove());
+      console.error('Desktop workspace failed; using the classic interface.', error);
+      startApp(true);
+    });
+    return;
+  }
   const container = $('#view-container');
   const TAB_ROUTE = { home: '#/home', order: '#/order/new', orders: '#/orders', stats: '#/stats', settings: '#/settings' };
   const TAB_ORDER = Object.keys(TAB_ROUTE);

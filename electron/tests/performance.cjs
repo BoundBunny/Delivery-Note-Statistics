@@ -18,7 +18,7 @@ app.whenReady().then(async()=>{
   const sample=async()=>{const before=await js('DNSDesktop.scene.stats().frame');await pause(800);return (await js('DNSDesktop.scene.stats().frame'))-before;};
   const report={baseline:process.argv.includes('--baseline'),sampleMs:800,homeFrames:await sample()};
   report.renderer=await js(`(()=>{const c=document.querySelector('#warehouse');const gl=c.getContext('webgl2')||c.getContext('webgl');const ext=gl?.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'unavailable';})()`);
-  await js("location.hash='#/orders'");await pause(250);report.businessFrames=await sample();
+  await js("location.hash='#/stats'");await pause(250);report.businessFrames=await sample();
   win.hide();await pause(200);report.hiddenFrames=await sample();win.show();
   await js("location.hash='#/home'");await pause(250);
   report.refresh=await js(`(()=>{const a=[];for(let i=0;i<12;i++){const t=performance.now();DNSDesktop.refresh();a.push(performance.now()-t);}return {meanMs:a.reduce((s,v)=>s+v,0)/a.length,maxMs:Math.max(...a)};})()`);

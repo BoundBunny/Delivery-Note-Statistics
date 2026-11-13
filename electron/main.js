@@ -26,6 +26,8 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const { createDataStore } = require('./lib/data-store.js');
+const { buildBackupArchive, prepareBackupImport, removeImportFolder } = require('./lib/backup-archive.js');
+const { randomUUID } = require('node:crypto');
 
 // 开发与 app.asar 内使用相同目录关系；保留业务存储键和 Electron 应用名。
 const WEB_ROOT = path.join(__dirname, 'webapp');
@@ -463,15 +465,8 @@ function createWindow() {
     if (prefs.action === 'quit') { isQuitting = true; app.quit(); return; }
     if (mainWindow && !mainWindow.isDestroyed()) minimizeToTray();
   });
-  // 点右上角「最小化」按钮时：若设置为最小化到系统托盘，也收进托盘而不是留在任务栏
-  mainWindow.on('minimize', (event) => {
-    if (isQuitting || SMOKE) return;
-    const prefs = getClosePrefs();
-    if (prefs.action === 'minimize' && !prefs.prompt) {
-      event.preventDefault();
-      minimizeToTray();
-    }
-  });
+  // 右上角「最小化」按钮：始终最小化到任务栏（Windows 任务栏），与关闭按钮的
+  // “最小化到系统托盘”偏好无关——托盘行为只属于关闭按钮。
   mainWindow.on('closed', () => { mainWindow = null; });
   const publishActivity = () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sd:windowActivity',
@@ -587,7 +582,10 @@ ipcMain.on('sd:storage:migrate', (event, legacy) => {
   }
 });
 ipcMain.on('sd:storage:flush', (event) => {
-  try { getDataStore().flushBackup(); event.returnValue = { ok: true }; } catch (_) { event.returnValue = { ok: false }; }
+  try {
+    const store = getDataStore(), ok = store.flushBackup();
+    event.returnValue = { ok, error: ok ? undefined : store.status.backupError || '备份失败' };
+  } catch (error) { event.returnValue = { ok: false, error: String(error && error.message || error) }; }
 });
 
 /* 设置页展示用：数据保存位置 + 备份位置 */
@@ -626,8 +624,7 @@ ipcMain.handle('sd:backupNow', async () => {
   try {
     const store = getDataStore();
     syncImageDirs();
-    store.flushBackup();
-    store.backupImages([defaultImageDir(), currentImageDir()]);
+    if (!store.flushBackup(true)) return { ok: false, error: store.status.backupError || '备份失败', info: storageInfo() };
     return { ok: true, info: storageInfo() };
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
@@ -660,18 +657,21 @@ function safeFileName(value, fallback='文件.bin') {
   const name=String(value||'').replace(/[\\/<>:"|?*\x00-\x1f]/g,'_').replace(/[. ]+$/g,'').trim();
   return name||fallback;
 }
-ipcMain.handle('sd:saveFile', async (_e, { fileName, mime, base64 }) => {
-  try {
+async function writeExportBytes(target, bytes, atomic) {
+  if (!atomic) return fsp.writeFile(target, bytes);
+  const temporary = path.join(path.dirname(target), '.' + path.basename(target) + '.' + randomUUID() + '.tmp');
+  try { await fsp.writeFile(temporary, bytes, { flag: 'wx' }); await fsp.rename(temporary, target); }
+  finally { await fsp.rm(temporary, { force: true }); }
+}
+async function saveExportBytes(fileName, buf, atomic = false) {
     fileName=safeFileName(fileName);
-    const buf = Buffer.from(base64 || '', 'base64');
     if (process.env.DNS_TEST_SAVE_DIR) {
       const dir = path.resolve(process.env.DNS_TEST_SAVE_DIR);
       await fsp.mkdir(dir, { recursive: true });
       const target = path.join(dir, safeFileName(fileName));
-      await fsp.writeFile(target, buf);
+      await writeExportBytes(target, buf, atomic);
       return { ok: true, path: target };
     }
-    const m = mime || 'application/octet-stream';
     const ext = path.extname(fileName || '').replace('.', '') || 'bin';
     const defaultDir = app.getPath('downloads');
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow, {
@@ -683,14 +683,67 @@ ipcMain.handle('sd:saveFile', async (_e, { fileName, mime, base64 }) => {
       ]
     });
     if (canceled || !filePath) return { ok: false, canceled: true };
-    await fsp.writeFile(filePath, buf);
+    await writeExportBytes(filePath, buf, atomic);
     return { ok: true, path: filePath };
+}
+ipcMain.handle('sd:saveFile', async (_e, { fileName, mime, base64 }) => {
+  try {
+    return await saveExportBytes(fileName, Buffer.from(base64 || '', 'base64'));
   } catch (err) {
     return { ok: false, error: String(err && err.message || err) };
   }
 });
 
+/* Back up actual image originals, never the display thumbnail protocol. */
+ipcMain.handle('sd:exportBackup', async (_e, { json, fileName }) => {
+  try {
+    const archive = await buildBackupArchive(json, WEB_ROOT);
+    const result = await saveExportBytes(fileName || '送货宝备份.zip', archive.bytes, true);
+    return { ...result, imageCount: archive.imageCount };
+  } catch (error) { return { ok: false, error: String(error.message || error) }; }
+});
+const pendingBackupImports = new Map();
+ipcMain.handle('sd:pickBackup', async () => {
+  try {
+    let chosen = process.env.DNS_TEST_PICK_FILE;
+    if (!chosen) {
+      const selection = await dialog.showOpenDialog(mainWindow, { title: '选择数据和图片备份', properties: ['openFile'],
+        filters: [{ name: '送货宝备份', extensions: ['zip', 'json'] }] });
+      if (selection.canceled || !selection.filePaths?.length) return { ok: false, canceled: true };
+      chosen = selection.filePaths[0];
+    }
+    const prepared = await prepareBackupImport(chosen, defaultImageDir(), decodeImportText);
+    let token;
+    if (prepared.folder) { token = randomUUID(); pendingBackupImports.set(token, { folder: prepared.folder, root: prepared.root }); }
+    return { ok: true, text: prepared.text, token, imageCount: prepared.imageCount };
+  } catch (error) { return { ok: false, error: String(error.message || error) }; }
+});
+ipcMain.handle('sd:finishBackupImport', async (_e, { token, keep }) => {
+  const prepared = pendingBackupImports.get(token);
+  if (!prepared) return { ok: true };
+  try {
+    if (!keep) await removeImportFolder(prepared.folder, prepared.root);
+    pendingBackupImports.delete(token);
+    return { ok: true };
+  } catch (error) { return { ok: false, error: String(error.message || error) }; }
+});
+
 /* ---------- 原生桥：pickFile（读取文本，回传给渲染进程） ---------- */
+ipcMain.handle('sd:pickDataFile', async () => {
+  try {
+    let chosen = process.env.DNS_TEST_PICK_FILE;
+    if (!chosen) {
+      const selection = await dialog.showOpenDialog(mainWindow, { title: '选择商品 / 客户资料（自动识别格式）', properties: ['openFile'],
+        filters: [{ name: 'Excel / CSV 资料', extensions: ['xlsx', 'xls', 'csv', 'txt', 'tsv'] }, { name: '所有文件', extensions: ['*'] }] });
+      if (selection.canceled || !selection.filePaths?.length) return { ok: false, canceled: true };
+      chosen = selection.filePaths[0];
+    }
+    const stat = await fsp.stat(chosen);
+    if (!stat.isFile() || !stat.size || stat.size > 32 * 1024 * 1024) throw new Error('请选择非空且不超过 32 MB 的资料文件');
+    const buffer = await fsp.readFile(chosen);
+    return { ok: true, name: path.basename(chosen), base64: buffer.toString('base64') };
+  } catch (error) { return { ok: false, error: String(error.message || error) }; }
+});
 ipcMain.handle('sd:pickFile', async (_e, { accept }) => {
   const isCsv = /\.csv/.test(accept || '');
   const isJson = /\.json/.test(accept || '');
@@ -719,10 +772,10 @@ ipcMain.handle('sd:pickFile', async (_e, { accept }) => {
 /* 复刻前端 / Android 的严格编码解码：先识别二进制，再尝试 UTF-8 / GB18030 */
 function decodeImportText(buf) {
   if (buf.length >= 2 && ((buf[0] === 0x50 && buf[1] === 0x4b) || (buf[0] === 0xd0 && buf[1] === 0xcf))) {
-    throw new Error('请选择 CSV 或 JSON 文本文件；Excel 文件请先另存为 CSV。');
+    throw new Error('当前入口只读取文本。Excel 资料请使用设置中的“导入商品”或“导入客户”。');
   }
   if (buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) {
-    throw new Error('请选择 CSV 或 JSON 文本文件；Excel 文件请先另存为 CSV。');
+    throw new Error('当前入口只读取文本。请选择对应的 JSON 或 CSV 文件。');
   }
   let text;
   if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
@@ -759,6 +812,23 @@ ipcMain.handle('sd:printPdf', async (_e, { jobName }) => {
 });
 
 /* ---------- 原生桥：shareFile（桌面：保存后定位到文件） ---------- */
+async function writeUniqueShareFile(dir, fileName, bytes) {
+  const parsed = path.parse(fileName);
+  for (let attempt = 0; ; attempt++) {
+    const target = path.join(dir, parsed.name + (attempt ? ' (' + (attempt + 1) + ')' : '') + parsed.ext);
+    let handle;
+    try {
+      handle = await fsp.open(target, 'wx');
+      await handle.writeFile(bytes);
+      await handle.close();
+      return target;
+    } catch (error) {
+      if (!handle && error.code === 'EEXIST') continue;
+      if (handle) { await handle.close().catch(() => {}); await fsp.rm(target, { force: true }).catch(() => {}); }
+      throw error;
+    }
+  }
+}
 ipcMain.handle('sd:shareFile', async (_e, { fileName, mime, base64 }) => {
   try {
     fileName=safeFileName(fileName);
@@ -767,8 +837,7 @@ ipcMain.handle('sd:shareFile', async (_e, { fileName, mime, base64 }) => {
       ? path.resolve(process.env.DNS_TEST_SAVE_DIR)
       : path.join(app.getPath('downloads'), '送货宝');
     await fsp.mkdir(dir, { recursive: true });
-    const target = path.join(dir, fileName || 'file');
-    await fsp.writeFile(target, buf);
+    const target = await writeUniqueShareFile(dir, fileName, buf);
     if (!process.env.DNS_TEST_SAVE_DIR) shell.showItemInFolder(target);
     return { ok: true, path: target };
   } catch (err) {
@@ -919,7 +988,7 @@ async function runSmokeTest(win) {
     checks.push(['数据可写入安装目录', report && report.storageRoundTrip === true]);
     checks.push(['首页已渲染', report && (report.desktopReady ? report.desktopMetrics === 4 : report.viewChildren >= 1)]);
     checks.push(['桌面场景工作台已就绪', report && report.desktopReady === true]);
-    checks.push(['导航已就绪', report && (report.desktopReady ? report.desktopNav === 6 : report.tabbar === 5)]);
+    checks.push(['导航已就绪', report && (report.desktopReady ? report.desktopNav === 5 : report.tabbar === 5)]);
     // 用一个真实导出验证 xlsx + 保存链路（不弹窗，只测生成）
     const gen = await win.webContents.executeJavaScript(`(function(){
       try { const b = Xlsx.build([{name:'t',title:'t',headers:['a'],rows:[[1]]}]); return b && b.length > 0; }

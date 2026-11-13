@@ -42,7 +42,37 @@ function fmtMoney(n) {
 }
 function fmtNum(n) {
   n = Number(n) || 0;
-  return (Math.round(n * 100) / 100).toLocaleString('zh-CN');
+  return formatDecimal(n);
+}
+// Quantities and unit prices retain the stored Number's decimal digits.
+// Only final monetary amounts use fmtMoney's two-decimal rounding.
+function formatDecimal(n, minimumFractionDigits = 0) {
+  n = Number(n) || 0;
+  if (!Number.isFinite(n)) return n.toLocaleString('zh-CN');
+  const [coefficient, exponentText] = Math.abs(n).toString().split('e');
+  let [whole, fraction = ''] = coefficient.split('.');
+  if (exponentText) {
+    const digits = whole + fraction, point = whole.length + Number(exponentText);
+    if (point <= 0) { whole = '0'; fraction = '0'.repeat(-point) + digits; }
+    else if (point >= digits.length) { whole = digits + '0'.repeat(point - digits.length); fraction = ''; }
+    else { whole = digits.slice(0, point); fraction = digits.slice(point); }
+  }
+  fraction = fraction.padEnd(minimumFractionDigits, '0');
+  return (n < 0 ? '-' : '') + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction ? '.' + fraction : '');
+}
+function fmtPrice(n) { return formatDecimal(n, 2); }
+function sumQuantities(values) {
+  return Number(sumQuantityText(values));
+}
+function sumQuantityText(values) {
+  const numbers = values.map(value => Number(value) || 0);
+  if (numbers.some(value => !Number.isFinite(value))) return String(numbers.reduce((sum, value) => sum + value, 0));
+  const parts = numbers.map(value => formatDecimal(value).replace(/,/g, '').split('.'));
+  const scale = parts.reduce((max, value) => Math.max(max, (value[1] || '').length), 0);
+  const sum = parts.reduce((total, value) => total + BigInt(value[0] + (value[1] || '')) * 10n ** BigInt(scale - (value[1] || '').length), 0n);
+  const digits = (sum < 0n ? -sum : sum).toString().padStart(scale + 1, '0');
+  const fraction = scale ? digits.slice(-scale).replace(/0+$/, '') : '';
+  return (sum < 0n ? '-' : '') + (scale ? digits.slice(0, -scale) : digits) + (fraction ? '.' + fraction : '');
 }
 
 /* 界面长数字：金额始终完整显示，数量可缩写，不改动存储或计算。 */
@@ -312,6 +342,40 @@ function xlsxBlob(bytes) {
   return new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+function ensureExportable() {
+  try { Store.assertExportable(); return true; }
+  catch (error) { toast(error.message, true); return false; }
+}
+
+// A migration file must not depend on an old computer's image directory.
+// Built-in images remain bundled; custom images become self-contained data URLs.
+async function exportBackupJSON() {
+  const backup = JSON.parse(Store.exportJSON());
+  const imageCache = new Map();
+  const embed = async record => {
+    const src = record.image;
+    if (!src || /^(bundle:|data:)/i.test(src)) return;
+    if (!imageCache.has(src)) imageCache.set(src, (async () => {
+      let response;
+      try { response = await fetch(productImageUrl(src)); }
+      catch (_) { throw new Error('无法读取商品图片，备份未导出：' + src); }
+      if (!response.ok) throw new Error('无法读取商品图片，备份未导出：' + src);
+      const blob = await response.blob();
+      if (!blob.size || !/^image\//i.test(blob.type)) throw new Error('商品图片无效，备份未导出：' + src);
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error('商品图片读取失败，备份未导出：' + src));
+        reader.readAsDataURL(blob);
+      });
+    })());
+    record.image = await imageCache.get(src);
+  };
+  for (const product of backup.data.products) await embed(product);
+  for (const entry of backup.catalog.entries) await embed(entry.changes);
+  return JSON.stringify(backup, null, 2);
+}
+
 function transferBlob(method, filename, blob) {
   if (window.Android && window.Android[method]) {
     return new Promise(resolve => {
@@ -350,7 +414,7 @@ function validDateRange(from, to) {
 /* 选择文件并读取为文本（Android桥 或 input[type=file]） */
 function assertImportText(text) {
   if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFD]/.test(text)) {
-    throw new Error('文件包含乱码或二进制内容，请使用原始 CSV 文本文件，勿直接导入 Excel 文件。');
+    throw new Error('文件包含乱码或二进制内容，请检查文本编码；Excel 资料请使用商品或客户导入入口。');
   }
   return text.replace(/^\uFEFF/, '');
 }
@@ -358,7 +422,7 @@ function decodeImportText(buffer) {
   const bytes = new Uint8Array(buffer);
   if ((bytes[0] === 0x50 && bytes[1] === 0x4b) || (bytes[0] === 0xd0 && bytes[1] === 0xcf)
       || (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
-    throw new Error('请选择 CSV 或 JSON 文本文件；Excel 文件请先另存为 CSV。');
+    throw new Error('当前入口只读取文本。Excel 资料请使用设置中的“导入商品”或“导入客户”。');
   }
   let text;
   if (bytes[0] === 0xff && bytes[1] === 0xfe) text = new TextDecoder('utf-16le', { fatal: true }).decode(bytes);
@@ -371,6 +435,39 @@ function decodeImportText(buffer) {
     }
   }
   return assertImportText(text);
+}
+async function pickDataTable(kind) {
+  let buffer;
+  if (window.Android?.pickDataFile) {
+    const result = await window.Android.pickDataFile();
+    if (result.canceled) return null;
+    if (!result.ok) throw new Error(result.error || '资料文件读取失败');
+    const binary = atob(result.base64);
+    buffer = Uint8Array.from(binary, character => character.charCodeAt(0)).buffer;
+  } else {
+    buffer = await new Promise((resolve, reject) => {
+      const input = document.createElement('input'); input.type = 'file'; input.accept = '.xlsx,.xls,.csv,.txt,.tsv';
+      input.oncancel = () => resolve(null);
+      input.onchange = async () => {
+        const file = input.files?.[0]; if (!file) { resolve(null); return; }
+        if (!file.size || file.size > 32 * 1024 * 1024) { reject(new Error('请选择非空且不超过 32 MB 的资料文件')); return; }
+        try { resolve(await file.arrayBuffer()); } catch (_) { reject(new Error('资料文件读取失败')); }
+      };
+      input.click();
+    });
+    if (buffer == null) return null;
+  }
+  return new Promise((resolve, reject) => {
+    let worker, timer;
+    const finish = (error, result) => { clearTimeout(timer); worker?.terminate(); if (error) reject(error); else resolve(result); };
+    try {
+      worker = new Worker(new URL('js/import-worker.js', document.baseURI));
+      worker.onmessage = event => event.data.ok ? finish(null, event.data) : finish(new Error(event.data.error || '资料解析失败'));
+      worker.onerror = event => { event.preventDefault(); finish(new Error('资料解析失败，请检查文件格式或重新导出原文件')); };
+      timer = setTimeout(() => finish(new Error('资料解析超时，请拆分文件后重试')), 30000);
+      worker.postMessage({ buffer, kind }, [buffer]);
+    } catch (error) { finish(error); }
+  });
 }
 function pickFileAsText(accept) {
   return new Promise(resolve => {

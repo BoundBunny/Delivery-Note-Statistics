@@ -34,6 +34,9 @@ const Store = (() => {
   };
 
   let cache = null;
+  let committed = null;
+  let transactionDepth = 0;
+  const listeners = new Set();
   function load() {
     if (cache) return cache;
     cache = {};
@@ -48,17 +51,75 @@ const Store = (() => {
     return cache;
   }
   function persist() {
-    Object.keys(K).forEach(k => {
-      try { localStorage.setItem(K[k], JSON.stringify(cache[k])); } catch (e) { /* 容量超限 */ }
-    });
+    if (transactionDepth) return;
+    const written = [];
+    try {
+      const next = {};
+      const previous = {};
+      Object.keys(K).forEach(k => {
+        next[k] = JSON.stringify(cache[k]);
+        previous[k] = localStorage.getItem(K[k]);
+      });
+      Object.keys(K).forEach(k => {
+        if (next[k] === previous[k]) return;
+        localStorage.setItem(K[k], next[k]);
+        written.push([k, previous[k]]);
+      });
+      committed = next;
+      // Publish only successful commits, after the caller has completed its
+      // synchronous save/navigation work. Subscribers must not break storage.
+      for (const listener of listeners) Promise.resolve().then(() => { if (listeners.has(listener)) listener(); }).catch(() => {});
+    } catch (cause) {
+      // A restore changes several keys. Undo completed writes and the in-memory
+      // mutation so a failed save cannot later be reported/exported as saved.
+      let rollbackFailed = false;
+      written.reverse().forEach(([k, value]) => {
+        try {
+          if (value == null) localStorage.removeItem(K[k]);
+          else localStorage.setItem(K[k], value);
+        } catch (_) { rollbackFailed = true; }
+      });
+      Object.keys(K).forEach(k => { cache[k] = JSON.parse(committed[k]); });
+      const error = new Error(rollbackFailed
+        ? '数据保存失败，存储回退也未完成。请立即导出备份并检查存储空间。'
+        : '数据保存失败，修改未保存。请检查存储空间或导出备份。');
+      error.code = 'SD_STORAGE_WRITE_FAILED';
+      if (typeof toast === 'function') toast(error.message, true);
+      throw error;
+    }
+  }
+
+  // Synchronous business operations (order + new products + remembered prices)
+  // must either all persist or all return to the last committed state.
+  function transaction(action) {
+    if (transactionDepth) return action();
+    transactionDepth = 1;
+    try {
+      const result = action();
+      transactionDepth = 0;
+      persist();
+      return result;
+    } catch (error) {
+      transactionDepth = 0;
+      Object.keys(K).forEach(k => { cache[k] = JSON.parse(committed[k]); });
+      throw error;
+    }
+  }
+  function subscribe(listener) {
+    if (typeof listener !== 'function') throw new TypeError('Store listener must be a function');
+    listeners.add(listener);
+    return () => listeners.delete(listener);
   }
 
   /* ---------- 初始商品目录 ----------
    * 首次运行把随应用附带的初始商品写入商品库（barcode/name/unit/spec/category）。
    * 用一次性标记，且按条码或「名称+规格」去重，避免重复写入或覆盖用户数据。
    */
-  const SEED_FLAG = 'sd_v1_seed_products_v1';
+  const SEED_FLAG = 'sd_v1_seed_products_v4';
   const SEED_CAT_FLAG = 'sd_v1_seed_products_cat_v1';
+  const SEED_PRICE_FLAG = 'sd_v1_seed_products_price_v2';
+  const DEDUPE_FLAG = 'sd_v1_dedupe_products_v1';
+  const BUNDLED_IMG_FLAG = 'sd_v1_bundled_images_v2';
   function seedKey(name, spec) {
     const norm = v => String(v == null ? '' : v).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
     return norm(name) + '\u0000' + norm(spec);
@@ -78,6 +139,9 @@ const Store = (() => {
             unit: String(s && s.unit || '').trim(),
             spec: String(s && s.spec || '').trim(),
             category: String(s && s.category || '').trim(),
+            price: s && s.price != null && s.price !== '' && Number.isFinite(Number(s.price)) ? Number(s.price) : undefined,
+            cost: s && s.cost != null && s.cost !== '' && Number.isFinite(Number(s.cost)) ? Number(s.cost) : undefined,
+            remark: String(s && s.remark || '').trim(),
           };
           if (!item.name) return;
           if (item.barcode && seenBarcode.has(item.barcode)) return;
@@ -104,13 +168,222 @@ const Store = (() => {
           const c = catMap.get(seedKey(p.name, p.spec));
           if (c) { p.category = c; patched++; }
         });
-        if (patched) persist();
+        d.products.forEach(p => {
+        if (!p || !p.name || !p.image) return;
+        if (!String(p.image).startsWith('bundle:')) return;
+        const img = bundledImageFor(p.name);
+        if (img && p.image !== img) { p.image = img; patched++; }
+      });
+      if (patched) persist();
         localStorage.setItem(SEED_CAT_FLAG, '1');
+      }
+      // 初始商品若还没有单价（老版本入库时种子不含价格），按「名称+规格」补一次参考价（不覆盖用户自己改过的价）
+      if (localStorage.getItem(SEED_PRICE_FLAG) !== '1') {
+        const priceMap = new Map();
+        seeds.forEach(s => {
+          const p = s && s.price != null && s.price !== '' && Number.isFinite(Number(s.price)) ? Number(s.price) : null;
+          if (p != null) priceMap.set(seedKey(s.name, s.spec), p);
+        });
+        let patched = 0;
+        d.products.forEach(p => {
+          if (!p || p.price != null) return;
+          const price = priceMap.get(seedKey(p.name, p.spec));
+          if (price != null) { p.price = price; patched++; }
+        });
+        if (patched) persist();
+        localStorage.setItem(SEED_PRICE_FLAG, '1');
       }
     } catch (_) { /* localStorage 不可用时忽略 */ }
   }
+
+  /* ---------- 商品分类归整 ----------
+   * 把商品按「小卖铺货架」逻辑归到正确的类目：
+   *  1) 与随应用附带的初始目录同名（或以初始目录名开头，如「康师傅红烧牛肉面袋装」）→ 用初始目录的类目；
+   *  2) 初始目录里没有的，按关键字规则归类；
+   *  3) 烟草的规格写法统一为「20支/盒」「10盒/条」。
+   * 一次性迁移，只改分类与规格，不动用户自定的名称、价格与图片。
+   */
+  const RECAT_FLAG = 'sd_v1_recategorize_products_v1';
+  const CAT_RULES = [
+    ['daily', /(抽纸|卷纸|纸巾|牙膏|香皂|洗衣|电池|打火机|垃圾袋|抹布|洗发|沐浴|蚊香)/],
+    ['candy', /(巧克力|棒棒糖|口香糖|糖果|奶糖|软糖)/],
+    ['drink', /(牛奶|酸奶|乳|饮料|啤酒|白酒|二锅头|劲酒|可乐|雪碧|芬达|红茶|绿茶|奶茶|凉茶|矿泉水|纯净水|气泡水|快线|功能饮料|水$|水 )/],
+    ['grain', /(米|油|盐|酱油|醋|蚝油|味精|鸡精|冰糖|砂糖|胡椒|料酒|豆瓣酱|豆豉|腐竹|粉丝|挂面|紫菜|木耳|香菇|辣椒|花椒|八角|榨菜|橄榄菜|腐乳|饺子|汤圆|燕麦|豆奶|罐头|粥|淀粉|生粉|绿豆|黄豆|红枣|枸杞|火腿肠|十三香|糖$)/],
+    ['snack', /(薯片|瓜子|饼干|雪饼|仙贝|辣条|鸭脖|卤蛋|小鱼|豆干|方便面|拌面|拉面|自热|面$|肉肠|果冻|花生|开心果|米饼|锅巴)/],
+  ];
+  function recategorizeProducts() {
+    try {
+      if (localStorage.getItem(RECAT_FLAG) === '1') return 0;
+      const seeds = Array.isArray(window.SEED_PRODUCTS) ? window.SEED_PRODUCTS : [];
+      const catMap = new Map();
+      const nameList = [];
+      seeds.forEach(s => {
+        const c = String(s && s.category || '').trim();
+        const n = dedupeNorm(s && s.name);
+        if (!c || !n) return;
+        catMap.set(n, c);
+        nameList.push({ n, c });
+      });
+      nameList.sort((a, b) => b.n.length - a.n.length);
+      let patched = 0;
+      d.products.forEach(p => {
+        if (!p || !p.name) return;
+        const n = dedupeNorm(p.name);
+        let cat = catMap.get(n) || '';
+        if (!cat) {
+          for (let i = 0; i < nameList.length && !cat; i++) {
+            const item = nameList[i];
+            if (item.n.length >= 3 && n.indexOf(item.n) === 0) cat = item.c;
+          }
+        }
+        if (!cat) {
+          for (let i = 0; i < CAT_RULES.length && !cat; i++) {
+            if (CAT_RULES[i][1].test(n)) cat = CAT_RULES[i][0];
+          }
+        }
+        if (cat && p.category !== cat) { p.category = cat; patched++; }
+        // 烟草规格统一
+        if (p.category === 'tobacco') {
+          const u = dedupeNorm(p.unit);
+          if (u === '盒' && p.spec !== '20支/盒') { p.spec = '20支/盒'; patched++; }
+          else if (u === '条' && p.spec !== '10盒/条') { p.spec = '10盒/条'; patched++; }
+        }
+      });
+      if (patched) persist();
+      localStorage.setItem(RECAT_FLAG, '1');
+      return patched;
+    } catch (_) { return 0; }
+  }
+
+  /* ---------- 商品去重 ----------
+   * 历史原因：部分商品被重复录入（名称带规格 vs 不带规格、同款不同写法）。
+   * 一次性迁移：把「同一商品」合并成一条，优先保留带图片的条目，
+   * 并把被删条目上缺失的价格/条码/备注等信息合并到保留条目；
+   * 历史单据与一客一价里引用的商品 id 同步改指向保留条目，避免悬空引用。
+   */
+  function dedupeNorm(v) {
+    return String(v == null ? '' : v).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+  function dedupeKey(p) {
+    const spec = dedupeNorm(p && p.spec);
+    let name = dedupeNorm(p && p.name);
+    // 名称末尾重复写了规格（如「可口可乐330ml」+ spec「330ml」）时按同一商品处理
+    if (spec && name.length > spec.length && name.endsWith(spec)) {
+      name = name.slice(0, name.length - spec.length).trim();
+    }
+    // 烟草同一款可能有「20支/盒」「20支」「盒」等多种规格写法，按「名称+计量单位」判定同一商品
+    if (dedupeNorm(p && p.category) === 'tobacco') return name + '\u0000' + '\u0000' + dedupeNorm(p && p.unit);
+    return name + '\u0000' + spec + '\u0000' + dedupeNorm(p && p.unit);
+  }
+  function dedupeRank(p) {
+    return [
+      p && p.image ? 1 : 0,
+      p && p.barcode ? 1 : 0,
+      p && p.price != null ? 1 : 0,
+      p && p.code ? 1 : 0,
+      p && p.remark ? 1 : 0,
+      p && p.createdAt ? 1 : 0,
+    ];
+  }
+  function dedupeBetter(a, b) {
+    const ra = dedupeRank(a), rb = dedupeRank(b);
+    for (let i = 0; i < ra.length; i++) {
+      if (ra[i] !== rb[i]) return rb[i] - ra[i];
+    }
+    return (b && b.createdAt || 0) - (a && a.createdAt || 0);
+  }
+  function dedupeProducts() {
+    try {
+      // 每次启动都执行（幂等）：种子商品会随版本新增，若只靠一次性标记，
+      // 之后入库的同款商品将永远无法与已有条目合并。
+      const groups = new Map();
+      d.products.forEach(p => {
+        if (!p || !p.name) return;
+        const k = dedupeKey(p);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(p);
+      });
+      const idMap = new Map();      // 被删 id -> 保留 id
+      const drop = new Set();
+      let merged = 0;
+      groups.forEach(list => {
+        if (list.length < 2) return;
+        const sorted = list.slice().sort(dedupeBetter);
+        const keep = sorted[0];
+        sorted.slice(1).forEach(p => {
+          idMap.set(p.id, keep.id);
+          drop.add(p.id);
+          // 保留条目缺失的字段用被删条目的补齐（不覆盖已有值）
+          ['code', 'barcode', 'image', 'remark', 'category'].forEach(k => {
+            if (!keep[k] && p[k]) keep[k] = p[k];
+          });
+          if (keep.price == null && p.price != null) keep.price = p.price;
+          if (keep.cost == null && p.cost != null) keep.cost = p.cost;
+          merged++;
+        });
+      });
+      if (!drop.size) {
+        localStorage.setItem(DEDUPE_FLAG, '1');
+        return 0;
+      }
+      d.products = d.products.filter(p => !drop.has(p.id));
+      // 历史单据明细与一客一价的商品引用改指向保留条目
+      d.orders.forEach(o => {
+        (o.items || []).forEach(it => {
+          if (it && it.pid && idMap.has(it.pid)) it.pid = idMap.get(it.pid);
+        });
+      });
+      const prices = {};
+      Object.keys(d.lastPrices || {}).forEach(k => {
+        const idx = k.lastIndexOf(':');
+        if (idx < 0) { prices[k] = d.lastPrices[k]; return; }
+        const custId = k.slice(0, idx), pid = k.slice(idx + 1);
+        const target = idMap.get(pid) || pid;
+        const nk = custId + ':' + target;
+        if (prices[nk] == null) prices[nk] = d.lastPrices[k];
+      });
+      d.lastPrices = prices;
+      persist();
+      localStorage.setItem(DEDUPE_FLAG, '1');
+      return merged;
+    } catch (_) { return 0; }
+  }
+
+  /* ---------- 内置商品图片 ----------
+   * 随应用打包的商品图片（assets/products/），按「商品名称」索引。
+   * 一次性迁移：给没有图片的商品自动补上内置图片；
+   * 用户自己设置过图片（本地绝对路径）的商品不覆盖。
+   */
+  function bundledImageFor(name) {
+    const map = window.BUNDLED_IMAGES;
+    if (!map || typeof map !== 'object') return '';
+    const key = dedupeNorm(name);
+    const file = map[key];
+    return file ? 'bundle:' + file : '';
+  }
+  function bindBundledImages() {
+    try {
+      // 每次启动都执行（幂等）：内置图库会随版本新增条目，
+      // 若只靠一次性标记，标记写入后新增的种子商品将永远绑不上图。
+      // 只给没有图片的商品补图，不覆盖用户自己设置的图片。
+      let patched = 0;
+      d.products.forEach(p => {
+        if (!p || !p.name || p.image) return;
+        const img = bundledImageFor(p.name);
+        if (img) { p.image = img; patched++; }
+      });
+      if (patched) persist();
+      localStorage.setItem(BUNDLED_IMG_FLAG, '1');
+      return patched;
+    } catch (_) { return 0; }
+  }
   const d = load();
+  committed = {};
+  Object.keys(K).forEach(k => { committed[k] = JSON.stringify(d[k]); });
   seedInitialProducts();
+  recategorizeProducts();
+  dedupeProducts();
+  bindBundledImages();
 
   /* ---------- 设置 ---------- */
   function getSettings() { return d.settings; }
@@ -153,7 +426,7 @@ const Store = (() => {
     let arr = d.products.slice();
     if (keyword) {
       const kw = String(keyword).trim().toLowerCase();
-      arr = arr.filter(p => (p.name + (p.code || '') + (p.spec || '')).toLowerCase().includes(kw));
+      arr = arr.filter(p => [p.name, p.code, p.barcode, p.spec].filter(Boolean).join(' ').toLowerCase().includes(kw));
     }
     return arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
@@ -165,6 +438,10 @@ const Store = (() => {
       return getProduct(data.id);
     }
     const p = { id: uid(), createdAt: Date.now(), ...data };
+    if (p && !p.image && p.name) {
+      const img = bundledImageFor(p.name);
+      if (img) p.image = img;
+    }
     d.products.unshift(p);
     persist();
     return p;
@@ -221,7 +498,14 @@ const Store = (() => {
   /* ---------- 单号 ---------- */
   function nextOrderNo(date) {
     const day = date || todayStr();
-    const s = d.seqMap[day] || 0;
+    let s = Number.isSafeInteger(d.seqMap[day]) ? d.seqMap[day] : 0;
+    // Older/partial backups may not contain seqMap. Existing numbers remain
+    // authoritative even if their order date was edited afterwards.
+    d.orders.forEach(o => {
+      const m = String(o.no || '').match(/-(\d{8})-(\d{3,})$/);
+      if (m && m[1] === day.replace(/-/g, '')) s = Math.max(s, Number(m[2]));
+    });
+    if (!Number.isSafeInteger(s + 1)) throw new Error('单号序号超出可用范围');
     d.seqMap[day] = s + 1;
     persist();
     const prefix = (d.settings.noPrefix || 'SD').trim();
@@ -230,7 +514,8 @@ const Store = (() => {
   }
   function pad3(n) { return (n < 100 ? '0' : '') + (n < 10 ? '0' : '') + n; }
   function reclaimNo(no) { // 删除单据后回退序号（仅当是当天最后一张）
-    const m = String(no || '').match(/-(\d{8})-(\d{3})$/);
+    if (d.orders.some(o => o.no === no)) return;
+    const m = String(no || '').match(/-(\d{8})-(\d{3,})$/);
     if (!m) return;
     const day = m[1].slice(0, 4) + '-' + m[1].slice(4, 6) + '-' + m[1].slice(6, 8);
     const seq = parseInt(m[2], 10);
@@ -276,12 +561,53 @@ const Store = (() => {
     // 先校验类型，全部通过后再落盘，避免写入一半导致数据半新半旧
     const isArr = v => Array.isArray(v);
     const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
+    if (!isObj(src)) throw new Error('备份中的数据格式不正确');
+    if (obj.version != null && obj.version !== 1) throw new Error('不支持此备份版本，请使用对应版本的应用恢复');
     if (src.settings != null && !isObj(src.settings)) throw new Error('备份中的设置数据格式不正确');
     if (src.customers != null && !isArr(src.customers)) throw new Error('备份中的客户数据格式不正确');
     if (src.products != null && !isArr(src.products)) throw new Error('备份中的商品数据格式不正确');
     if (src.orders != null && !isArr(src.orders)) throw new Error('备份中的单据数据格式不正确');
     if (src.lastPrices != null && !isObj(src.lastPrices)) throw new Error('备份中的价格记录格式不正确');
     if (src.seqMap != null && !isObj(src.seqMap)) throw new Error('备份中的单号序号格式不正确');
+    const fail = label => { throw new Error('备份中的' + label + '格式不正确，已取消恢复'); };
+    const textFields = (record, keys, label) => keys.forEach(key => {
+      if (record[key] != null && typeof record[key] !== 'string') fail(label);
+    });
+    const namedRecords = (records, label) => {
+      const ids = new Set();
+      (records || []).forEach(record => {
+        if (!isObj(record) || typeof record.id !== 'string' || !record.id || ids.has(record.id)
+            || typeof record.name !== 'string' || !record.name.trim()) fail(label);
+        ids.add(record.id);
+        textFields(record, ['phone', 'address', 'contact', 'code', 'barcode', 'spec', 'unit', 'remark', 'image', 'category'], label);
+        ['price', 'cost', 'createdAt'].forEach(key => {
+          if (record[key] != null && !Number.isFinite(record[key])) fail(label);
+        });
+      });
+    };
+    textFields(src.settings || {}, Object.keys(DEFAULTS.settings), '设置数据');
+    namedRecords(src.customers, '客户记录');
+    namedRecords(src.products, '商品记录');
+    const orderIds = new Set();
+    (src.orders || []).forEach(o => {
+      if (!isObj(o) || typeof o.id !== 'string' || !o.id || orderIds.has(o.id)
+          || typeof o.no !== 'string' || !o.no || typeof o.date !== 'string'
+          || !/^\d{4}-\d{2}-\d{2}$/.test(o.date) || dateStr(dateOf(o.date)) !== o.date
+          || !Array.isArray(o.items) || !Number.isFinite(o.total)) fail('单据记录');
+      orderIds.add(o.id);
+      textFields(o, ['operator', 'note'], '单据记录');
+      if (o.customer != null) {
+        if (!isObj(o.customer) || typeof o.customer.name !== 'string') fail('单据客户');
+        textFields(o.customer, ['id', 'phone', 'address', 'contact'], '单据客户');
+      }
+      o.items.forEach(it => {
+        if (!isObj(it) || typeof it.name !== 'string' || !it.name.trim()
+            || !Number.isFinite(it.qty) || !Number.isFinite(it.price) || !Number.isFinite(it.amount)) fail('单据明细');
+        textFields(it, ['pid', 'spec', 'unit', 'remark'], '单据明细');
+      });
+    });
+    Object.values(src.lastPrices || {}).forEach(price => { if (!Number.isFinite(price)) fail('价格记录'); });
+    Object.values(src.seqMap || {}).forEach(seq => { if (!Number.isSafeInteger(seq) || seq < 0) fail('单号序号'); });
     // 完整覆盖：备份里缺的字段回落到默认值，而不是保留当前旧数据
     Object.keys(K).forEach(k => {
       if (src[k] != null) d[k] = src[k];
@@ -384,27 +710,36 @@ const Store = (() => {
       const n = Number(s);
       return Number.isFinite(n) ? n : undefined;
     }
-    let added = 0, skipped = 0;
-    const existsName = new Set(d.products.map(p => p.name));
+    let skipped = 0;
+    const pending = [];
+    const existsKey = new Set(d.products.map(p => seedKey(p.name, p.spec)));
+    const existsBarcode = new Set(d.products.filter(p => p.barcode).map(p => String(p.barcode).trim()));
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
       const name = String(r[idx.name] || '').trim();
       if (!name) continue;
-      if (existsName.has(name)) { skipped++; continue; }
-      upsertProduct({
+      const spec = String(idx.spec >= 0 ? r[idx.spec] || '' : '').trim();
+      const barcode = String(idx.barcode >= 0 ? r[idx.barcode] || '' : '').trim();
+      const key = seedKey(name, spec);
+      if (existsKey.has(key) || (barcode && existsBarcode.has(barcode))) { skipped++; continue; }
+      pending.push({
         name,
         code: String(idx.code >= 0 ? r[idx.code] || '' : '').trim(),
-        barcode: String(idx.barcode >= 0 ? r[idx.barcode] || '' : '').trim(),
-        spec: String(idx.spec >= 0 ? r[idx.spec] || '' : '').trim(),
+        barcode,
+        spec,
         unit: String(idx.unit >= 0 ? r[idx.unit] || '' : '').trim(),
         price: idx.price >= 0 ? parseMoney(r[idx.price]) : undefined,
         cost: idx.cost >= 0 ? parseMoney(r[idx.cost]) : undefined,
         remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
       });
-      existsName.add(name);
-      added++;
+      existsKey.add(key);
+      if (barcode) existsBarcode.add(barcode);
     }
-    return { added, skipped };
+    if (pending.length) {
+      d.products = pending.map(product => ({ id: uid(), createdAt: Date.now(), ...product })).concat(d.products);
+      persist();
+    }
+    return { added: pending.length, skipped };
   }
   function importCustomersCSV(text) {
     const rows = parseCSV(text);
@@ -447,7 +782,7 @@ const Store = (() => {
   function billGroups(ym) {
     const from = ym + '-01', to = ym + '-31';
     const list = listOrders({ from, to });
-    const groups = {};
+    const groups = Object.create(null);
     list.forEach(o => {
       const key = o.customer && o.customer.id ? o.customer.id : '__san__';
       const name = o.customer ? o.customer.name : '散客';
@@ -494,6 +829,6 @@ const Store = (() => {
     ordersCSV, customersCSV, productsCSV,
     billGroups, ordersTable,
     importProductsCSV, importCustomersCSV,
-    clearAll, countAll,
+    clearAll, countAll, transaction, subscribe,
   };
 })();

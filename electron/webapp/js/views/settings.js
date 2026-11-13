@@ -33,6 +33,19 @@ Views.settings = {
         ${value ? `<span class="settings-row-value num">${esc(value)}</span>` : ''}
         <svg class="settings-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
       </button>`;
+    const exportRow = ({ kind, title, note, tone }) => `
+      <div class="settings-row settings-export-row" data-export-kind="${kind}">
+        <span class="settings-row-icon settings-icon-${tone}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons.export}</svg></span>
+        <span class="settings-row-main"><span class="settings-row-title">${title}</span><span class="settings-row-note">${note}</span></span>
+        <div class="settings-export-actions">
+          <button type="button" class="btn btn-ghost btn-sm" data-act="imp-${kind}" aria-label="导入${kind === 'products' ? '商品' : '客户'}">导入</button>
+          <div class="exp-format" data-role="export-format" data-value="xlsx" role="radiogroup" aria-label="${title}格式">
+            <button type="button" class="exp-format-opt is-on" role="radio" aria-checked="true" tabindex="0" data-format="xlsx">Excel<em>.xlsx</em></button>
+            <button type="button" class="exp-format-opt" role="radio" aria-checked="false" tabindex="-1" data-format="csv">CSV<em>.csv</em></button>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" data-act="exp-${kind}" aria-label="导出${kind === 'products' ? '商品' : '客户'}">导出</button>
+        </div>
+      </div>`;
 
     el.innerHTML = `
       <div class="topbar"><h1>设置</h1></div>
@@ -51,30 +64,42 @@ Views.settings = {
         <section class="settings-section" aria-labelledby="settings-data-title">
           <h2 class="settings-section-title" id="settings-data-title">数据管理</h2>
           <div class="settings-card">
-            ${row({ act: 'backup', title: '导出备份', note: cnt.orders + ' 张单据 · ' + cnt.customers + ' 个客户 · ' + cnt.products + ' 个商品', icon: 'backup', tone: 'purple' })}
-            ${row({ act: 'restore', title: '恢复备份', note: '从备份文件恢复并覆盖当前数据', icon: 'restore', tone: 'green' })}
-            ${row({ act: 'exp-orders', title: '导出单据 Excel', note: '导出日期、单号、客户和金额', icon: 'export', tone: 'blue' })}
-            ${row({ act: 'exp-products', title: '导出商品 Excel', note: '导出名称、规格、单价等资料', icon: 'export', tone: 'teal' })}
-            ${row({ act: 'exp-customers', title: '导出客户 Excel', note: '导出客户名称、电话和地址', icon: 'export', tone: 'violet' })}
-            ${row({ act: 'imp-products', title: '导入商品 CSV', note: 'CSV 文本，须包含“产品名称”列', icon: 'import', tone: 'amber' })}
-            ${row({ act: 'imp-customers', title: '导入客户 CSV', note: 'CSV 文本，须包含“客户名称”列', icon: 'import', tone: 'green' })}
-            ${row({ act: 'clear', title: '清空全部数据', note: '删除所有单据、客户、商品，不可恢复', icon: 'trash', tone: 'red' })}
+            <div class="settings-data-intro"><h3>备份与换机</h3><p>整份保存客户、单据、商品及图片，换电脑时使用。</p></div>
+            ${row({ act: 'backup', title: '备份到文件', note: cnt.orders + ' 张单据 · ' + cnt.customers + ' 个客户 · 含商品图片', icon: 'backup', tone: 'purple' })}
+            ${row({ act: 'restore', title: '从备份恢复', note: '导入以前保存的备份，会覆盖当前业务数据', icon: 'restore', tone: 'green' })}
           </div>
-        </section>
-        <section class="settings-section" aria-labelledby="settings-storage-title">
-          <h2 class="settings-section-title" id="settings-storage-title">数据保存位置</h2>
-          <div class="settings-card">
-            <div class="settings-row settings-image-row">
-              <span class="settings-row-icon settings-icon-purple" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons.backup}</svg></span>
-              <span class="settings-row-main sr-main"><span class="settings-row-title">数据文件位置</span><span class="settings-row-note sr-s" data-role="data-dir">加载中…</span></span>
+          <details class="settings-card settings-data-group" data-data-panel="tables">
+            <summary class="settings-row">
+              <span class="settings-row-icon settings-icon-teal" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons.export}</svg></span>
+              <span class="settings-row-main"><span class="settings-row-title">表格导入导出</span><span class="settings-row-note">按商品、客户或单据分别操作</span></span>
+              <svg class="settings-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </summary>
+            <div class="settings-table-tools">
+              <p class="settings-data-help">导入自动识别 Excel / CSV，只新增资料并跳过重复项；导出表格不包含图片。</p>
+              ${exportRow({ kind: 'products', title: '商品资料', note: '名称、规格、单价等，包含已下架商品', tone: 'teal' })}
+              ${exportRow({ kind: 'customers', title: '客户资料', note: '名称、电话、联系人和地址', tone: 'violet' })}
+              ${row({ act: 'exp-orders', title: '导出单据汇总', note: '全部单据，一单一行，保存为 Excel', icon: 'export', tone: 'blue' })}
             </div>
-            <div class="settings-image-actions" data-role="data-actions">
-              <button type="button" class="btn btn-ghost btn-sm" data-act="open-data-dir">打开数据文件夹</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-act="open-backup-dir">打开备份文件夹</button>
-              <button type="button" class="btn btn-ghost btn-sm" data-act="backup-now">立即备份</button>
+          </details>
+          <details class="settings-card settings-data-group" data-data-panel="advanced">
+            <summary class="settings-row">
+              <span class="settings-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h16"/><circle cx="9" cy="5" r="2" fill="white"/><circle cx="15" cy="12" r="2" fill="white"/><circle cx="9" cy="19" r="2" fill="white"/></svg></span>
+              <span class="settings-row-main"><span class="settings-row-title">高级选项</span><span class="settings-row-note">本机自动备份、存储目录和清空数据</span></span>
+              <svg class="settings-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+            </summary>
+            <div class="settings-data-advanced">
+              <div class="settings-row settings-image-row">
+                <span class="settings-row-main"><span class="settings-row-title">本机数据目录</span><span class="settings-row-note" data-role="data-dir">加载中…</span></span>
+              </div>
+              <div class="settings-image-actions" data-role="data-actions">
+                <button type="button" class="btn btn-ghost btn-sm" data-act="open-data-dir">打开数据目录</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-act="open-backup-dir">打开自动备份目录</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-act="backup-now">更新本机备份</button>
+              </div>
+              <div class="settings-image-hint" data-role="data-hint">本机自动备份在保存后更新；换电脑请使用上方“备份到文件”。</div>
+              ${row({ act: 'clear', title: '清空全部数据', note: '删除当前客户、商品和单据，不可撤销；建议先备份', icon: 'trash', tone: 'red' })}
             </div>
-            <div class="settings-image-hint" data-role="data-hint">商品、单价、客户和单据保存在程序所在文件夹的「用户数据」目录里；每次保存还会自动在程序目录之外留一份备份，误删程序后重新安装即可自动恢复。</div>
-          </div>
+          </details>
         </section>
         <section class="settings-section" aria-labelledby="settings-close-title">
           <h2 class="settings-section-title" id="settings-close-title">窗口与关闭</h2>
@@ -124,6 +149,8 @@ Views.settings = {
       </div>`;
 
     const imageDirNote = $('[data-role="image-dir"]', el);
+    let backupBusy = false;
+    let importing = false;
     const imageActions = $('[data-role="image-actions"]', el);
     let imageDefaultDir = '';
     const updateImageDirNote = () => {
@@ -156,7 +183,7 @@ Views.settings = {
         const b = storageInfo.backupDir || '';
         const extra = storageInfo.restored ? '（本次启动已从程序目录之外的备份自动恢复）' : '';
         const fb = storageInfo.fallback ? '（程序安装目录不可写，已自动改存到用户目录）' : '';
-        dataHint.textContent = '商品、单价、客户和单据保存在程序所在文件夹的「用户数据」目录里；每次保存还会自动在程序目录之外（' + b + '）留一份备份，误删程序后重新安装即可自动恢复。' + extra + fb;
+        dataHint.textContent = '本机自动备份目录：' + b + '。保存后自动更新；换电脑请使用“备份到文件”。' + extra + fb;
       }
     };
     if (window.Android && window.Android.getStorageInfo) {
@@ -210,9 +237,35 @@ Views.settings = {
       }
     });
 
+    el.addEventListener('keydown', e => {
+      const cur = e.target.closest && e.target.closest('.exp-format-opt');
+      if (!cur || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      const box = cur.closest('[data-role="export-format"]');
+      const opts = Array.prototype.slice.call(box.querySelectorAll('.exp-format-opt'));
+      if (!opts.length) return;
+      e.preventDefault();
+      const i = opts.indexOf(cur);
+      const next = opts[(i + (e.key === 'ArrowRight' ? 1 : opts.length - 1)) % opts.length];
+      next.click(); next.focus();
+    });
+
     el.addEventListener('click', async e => {
       const go = e.target.closest('[data-go]');
       if (go) { location.hash = '#/' + go.dataset.go; return; }
+      const fmt = e.target.closest('.exp-format-opt');
+      if (fmt) {
+        const box = fmt.closest('[data-role="export-format"]');
+        if (box && !box.classList.contains('is-busy')) {
+          box.dataset.value = fmt.dataset.format;
+          box.querySelectorAll('.exp-format-opt').forEach(b => {
+            const on = b === fmt;
+            b.classList.toggle('is-on', on);
+            b.setAttribute('aria-checked', on ? 'true' : 'false');
+            b.tabIndex = on ? 0 : -1;
+          });
+        }
+        return;
+      }
       const act = e.target.closest('[data-act]');
       if (!act) return;
       const a = act.dataset.act;
@@ -273,55 +326,95 @@ Views.settings = {
         return;
       }
       if (a === 'backup') {
+        if (backupBusy) return;
+        backupBusy = true;
+        act.disabled = true;
         try {
-        const json = Store.exportJSON();
-        const name = '送货宝备份_' + todayStr().replace(/-/g, '') + '.json';
-        if ((await downloadBlob(name, new Blob([json], { type: 'application/json' }))).ok) toast('备份已导出');
+          const name = '送货宝备份_' + todayStr().replace(/-/g, '');
+          if (window.Android?.exportBackup) {
+            const result = await window.Android.exportBackup(Store.exportJSON(), name + '.zip');
+            if (result.ok) toast('备份已导出');
+            else if (!result.canceled) toast(result.error || '备份导出失败', true);
+          } else {
+            const json = await exportBackupJSON();
+            if ((await downloadBlob(name + '.json', new Blob([json], { type: 'application/json' }))).ok) toast('备份已导出');
+          }
         } catch(error) { toast(error.message || '备份导出失败',true); }
+        finally { backupBusy = false; act.disabled = false; }
         return;
       }
       if (a === 'restore') {
         const ok = await confirmDialog({ title: '恢复备份会覆盖当前全部数据，继续？', okText: '继续' });
         if (!ok) return;
-        const text = await pickFileAsText('.json');
-        if (text == null) return;
+        const prepared = window.Android?.pickBackup ? await window.Android.pickBackup() : { ok: true, text: await pickFileAsText('.json') };
+        if (prepared.canceled || prepared.text == null && prepared.ok) return;
+        if (!prepared.ok) { toast(prepared.error || '备份读取失败', true); return; }
+        let restored = false;
         try {
-          Store.importJSON(text);
+          Store.importJSON(prepared.text);
+          restored = true;
           toast('恢复成功');
           location.hash = '#/home';
         } catch (err) {
           toast(err.message || '恢复失败', true);
+        } finally {
+          if (prepared.token) {
+            const result = await window.Android.finishBackupImport(prepared.token, restored);
+            if (!result.ok) toast('图片暂存目录处理失败：' + (result.error || '请检查存储空间'), true);
+          }
         }
         return;
       }
       if (a === 'exp-orders') {
+        if (!ensureExportable()) return;
         const rows = Store.ordersTable();
-        const tq = rows.reduce((x, r) => x + r.qty, 0);
+        const tq = sumQuantities(rows.map(r => r.qty));
         const ta = Math.round(rows.reduce((x, r) => x + (r.total || 0), 0) * 100) / 100;
         const bytes = Xlsx.build([{ name: '送货单', title: '送货宝统计表', headers: ['日期', '单号', '客户', '件数', '金额(元)', '备注'], rows: rows.map(r => [r.date, r.no, r.customer, r.qty, r.total, r.note]), widths: [12, 16, 16, 8, 12, 30], footer: ['', '', '合计', tq, ta, ''] }]);
         if ((await downloadBlob('送货宝.xlsx', xlsxBlob(bytes))).ok) toast('已导出 Excel');
         return;
       }
-      if (a === 'exp-products') {
-        const ps = Store.listProducts('', { includeArchived: true });
-        const bytes = Xlsx.build([{ name: '商品', title: '商品资料', headers: ['编号', '条码', '产品名称', '规格', '单位', '零售价', '成本价', '状态', '备注'], rows: ps.map(p => [p.code || '', p.barcode || '', p.name, p.spec || '', p.unit || '', p.price != null ? p.price : '', p.cost != null ? p.cost : '', p.archived ? '已下架' : '在售', p.remark || '']), widths: [12, 14, 22, 12, 8, 10, 10, 8, 20] }]);
-        if ((await downloadBlob('商品.xlsx', xlsxBlob(bytes))).ok) toast('已导出 Excel');
-        return;
-      }
-      if (a === 'exp-customers') {
-        const cs = Store.listCustomers('');
-        const bytes = Xlsx.build([{ name: '客户', title: '客户资料', headers: ['客户名称', '电话', '联系人', '地址', '备注'], rows: cs.map(c => [c.name, c.phone || '', c.contact || '', c.address || '', c.remark || '']), widths: [18, 16, 12, 28, 20] }]);
-        if ((await downloadBlob('客户.xlsx', xlsxBlob(bytes))).ok) toast('已导出 Excel');
+      if (a === 'exp-products' || a === 'exp-customers') {
+        if (!ensureExportable()) return;
+        if (act.disabled) return;
+        const formatInput = act.closest('[data-export-kind]').querySelector('[data-role="export-format"]');
+        const format = formatInput.value || formatInput.dataset.value;
+        if (format !== 'xlsx' && format !== 'csv') { toast('请选择有效的导出格式', true); return; }
+        act.disabled = true; formatInput.classList.add('is-busy');
+        try {
+          let sheet;
+          if (a === 'exp-products') {
+            const ps = Store.listProducts('', { includeArchived: true });
+            sheet = { name: '商品', title: '商品资料', headers: ['编号', '条码', '产品名称', '规格', '单位', '零售价', '成本价', '状态', '备注'], rows: ps.map(p => [p.code || '', p.barcode || '', p.name, p.spec || '', p.unit || '', p.price != null ? p.price : '', p.cost != null ? p.cost : '', p.archived ? '已下架' : '在售', p.remark || '']), widths: [12, 14, 22, 12, 8, 10, 10, 8, 20] };
+          } else {
+            const cs = Store.listCustomers('');
+            sheet = { name: '客户', title: '客户资料', headers: ['客户名称', '电话', '联系人', '地址', '备注'], rows: cs.map(c => [c.name, c.phone || '', c.contact || '', c.address || '', c.remark || '']), widths: [18, 16, 12, 28, 20] };
+          }
+          const blob = format === 'csv'
+            ? new Blob(['\uFEFF' + Store.tableCSV(sheet.headers, sheet.rows)], { type: 'text/csv;charset=utf-8' })
+            : xlsxBlob(Xlsx.build([sheet]));
+          if ((await downloadBlob(sheet.name + '.' + format, blob)).ok) toast('已导出 ' + (format === 'csv' ? 'CSV' : 'Excel'));
+        } catch (error) { toast(error.message || '资料导出失败', true); }
+        finally { act.disabled = false; formatInput.classList.remove('is-busy'); }
         return;
       }
       if (a === 'imp-products' || a === 'imp-customers') {
-        const text = await pickFileAsText('.csv,text/csv');
-        if (text == null) return;
+        if (importing) return;
+        if (Store.recoveryState().blocked) { toast('本地数据异常，请先导出原始数据并恢复有效备份，再导入资料', true); return; }
+        importing = true;
+        const buttons = $$('[data-act="imp-products"],[data-act="imp-customers"]', el);
+        buttons.forEach(button => { button.disabled = true; });
         try {
-          const r = a === 'imp-products' ? Store.importProductsCSV(text) : Store.importCustomersCSV(text);
-          toast(`新增 ${r.added} 条，跳过重复 ${r.skipped} 条`);
+          const kind = a === 'imp-products' ? 'products' : 'customers';
+          const table = await pickDataTable(kind);
+          if (!table) return;
+          const r = Store.importTables(kind, table.sheets);
+          toast(`已识别 ${table.format}，新增 ${r.added} 条，跳过重复 ${r.skipped} 条`);
         } catch (err) {
           toast(err.message || '导入失败', true);
+        } finally {
+          importing = false;
+          buttons.forEach(button => { button.disabled = false; });
         }
         return;
       }
@@ -366,7 +459,20 @@ Views.companyInfo = {
             <div class="field"><label class="lab" for="company-prefix">单号前缀</label><input id="company-prefix" data-s="noPrefix" value="${esc(settings.noPrefix)}"></div>
             <div class="field"><label class="lab" for="company-operator">默认制单人</label><input id="company-operator" data-s="operator" value="${esc(settings.operator)}"></div>
           </div>
-          <div class="field"><label class="lab" for="company-note">整单默认备注（打印在单据底部）</label><textarea id="company-note" data-s="note" rows="3">${esc(settings.note)}</textarea></div>
+          <div class="field wm-field">
+            <label class="lab" for="company-watermark">送货单水印</label>
+            <div class="wm-row">
+              <div class="wm-preview" data-role="wm-preview" aria-hidden="true"></div>
+              <div class="wm-copy">
+                <span class="wm-title">斜向平铺公司名称</span>
+                <span class="wm-desc">作为单据底纹，不影响金额与文字清晰度</span>
+              </div>
+              <label class="wm-switch">
+                <input type="checkbox" id="company-watermark" data-s="watermark" ${settings.watermark !== false ? 'checked' : ''}>
+                <span class="wm-slider" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
           <div class="field">
             <div class="bill-title-heading"><label class="lab" for="company-bill-title">月度账单标题</label><button type="button" class="bill-title-reset" data-act="reset-title">恢复默认</button></div>
             <textarea id="company-bill-title" class="bill-title-editor" data-s="billTitle" rows="3" aria-describedby="bill-title-help">${esc(readableTitle(settings.billTitle))}</textarea>
@@ -386,6 +492,20 @@ Views.companyInfo = {
 
     const titleInput = $('[data-s="billTitle"]', el);
     titleInput.setSelectionRange(titleInput.value.length, titleInput.value.length);
+    const wmBox = $('[data-role="wm-preview"]', el);
+    const wmToggle = $('#company-watermark', el);
+    const paintWmPreview = () => {
+      if (!wmBox) return;
+      const nm = ($('[data-s="company"]', el).value || '').trim() || '公司/店铺名称';
+      const tile = typeof watermarkTileWidth === 'function' ? watermarkTileWidth(nm) : 300;
+      if (typeof watermarkSpriteUrl === 'function') {
+        wmBox.style.backgroundImage = 'url("' + watermarkSpriteUrl(nm, tile, 0.2) + '")';
+        wmBox.style.backgroundSize = Math.round(tile * 0.3) + 'px 51px';
+      }
+      wmBox.classList.toggle('is-off', !(wmToggle && wmToggle.checked));
+    };
+    paintWmPreview();
+    if (wmToggle) wmToggle.addEventListener('change', paintWmPreview);
     const updatePreview = () => {
       $('[data-role="bill-title-preview"]', el).textContent = billTitleFor('示例客户', todayStr().slice(0, 7), {
         billTitle: storedTitle(titleInput.value), company: $('[data-s="company"]', el).value.trim(),
@@ -393,7 +513,7 @@ Views.companyInfo = {
     };
     updatePreview();
     el.addEventListener('input', e => {
-      if (e.target.matches('[data-s="billTitle"], [data-s="company"]')) updatePreview();
+      if (e.target.matches('[data-s="billTitle"], [data-s="company"]')) { updatePreview(); paintWmPreview(); }
     });
     el.addEventListener('click', e => {
       const fieldButton = e.target.closest('[data-title-field]');
@@ -415,10 +535,12 @@ Views.companyInfo = {
       }
       if (button.dataset.act === 'save-info') {
         const patch = {};
-        ['company', 'phone', 'contact', 'address', 'noPrefix', 'operator', 'note'].forEach(key => {
+        ['company', 'phone', 'contact', 'address', 'noPrefix', 'operator'].forEach(key => {
           patch[key] = $('[data-s="' + key + '"]', el).value.trim();
         });
         patch.billTitle = storedTitle(titleInput.value);
+        const wmInput = $('[data-s="watermark"]', el);
+        patch.watermark = !!(wmInput && wmInput.checked);
         try { Store.setSettings(patch); } catch(error) { toast(error.message || '保存失败',true);return; }
         el.dispatchEvent(new Event('dns-form-committed',{bubbles:true}));
         toast('公司/店铺信息已保存');

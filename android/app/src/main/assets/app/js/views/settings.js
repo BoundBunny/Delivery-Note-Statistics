@@ -10,19 +10,19 @@ Views.settings = {
     el.className = 'view active settings-view';
     const s = Store.getSettings();
     const cnt = Store.countAll();
-    const bg3dOn = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
-    const bg3dMode = (() => { try { return localStorage.getItem('sd_v1_bg3d_mode') === 'full' ? 'full' : 'soft'; } catch (e) { return 'soft'; } })();
+    const bg3dOn = (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
     const bg3dStatText = () => {
       const b = window.DNSBackground && window.DNSBackground.stats ? window.DNSBackground.stats() : null;
       if (!b) return '待加载';
       if (b.state === 'off' || b.state === 'idle') return '待加载';
-      if (b.state === 'skip') return '窗口过窄';
-      if (b.state === 'fallback') return '静态回退';
+      if (b.state === 'skip') return b.reason === 'narrow' ? '仅桌面宽屏显示' : '仅工作台显示';
+      if (b.state === 'fallback') return '3D 不可用';
       if (b.state === 'loading') return '加载中';
+      if (b.reducedMotion) return '静态 · 减少动态效果';
       return (b.tier || '标准') + (b.level ? ' · 降级' + b.level + '级' : '') + ' · ' + (b.fps || '-') + ' FPS';
     };
     const bg3dValueText = () => {
-      const on = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
+      const on = window.Android && window.Android.isDesktop && window.DNSDesktop ? window.DNSDesktop.sceneEnabled() : (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
       return on ? ('开启 · ' + bg3dStatText()) : '关闭';
     };
     const icons = {
@@ -55,8 +55,7 @@ Views.settings = {
           <div class="settings-card">
             ${row({ go: 'customers', title: '客户管理', note: '名称、电话、地址', icon: 'customers', tone: 'green', value: cnt.customers + ' 个' })}
             ${row({ go: 'products', title: '商品管理', note: '名称、规格、单价', icon: 'products', tone: 'blue', value: cnt.products + ' 个' })}
-            ${row({ act: 'toggle-bg3d', title: '3D 工作台背景', note: '等距微缩沙盘，默认关闭；开启后界面优先，场景只作氛围', icon: 'image', tone: 'violet', value: bg3dValueText() })}
-            ${bg3dOn ? row({ act: 'toggle-bg3d-mode', title: '背景强度', note: '柔化＝加纸色白纱保证文字清晰；全开＝完整场景', icon: 'image', tone: 'teal', value: bg3dMode === 'full' ? '全开' : '柔化' }) : ''}
+            ${row({ act: 'toggle-bg3d', title: window.Android && window.Android.isDesktop ? '3D 场景工作台' : '工作台沙盘卡片', note: window.Android && window.Android.isDesktop ? '以仓库场景导航业务；关闭场景后仍可正常开单与管理资料' : '仅桌面宽屏（≥900px）的工作台显示；窄屏不加载以省电，默认关闭', icon: 'image', tone: 'violet', value: bg3dValueText() })}
           </div>
         </section>
         <section class="settings-section" aria-labelledby="settings-data-title">
@@ -104,7 +103,7 @@ Views.settings = {
       if (!el.isConnected) { clearInterval(bg3dTimer); return; }
       const val = el.querySelector('[data-act="toggle-bg3d"] .settings-row-value');
       if (val) val.textContent = bg3dValueText();
-    }, 1500);
+    }, 1000);
 
     const imageDirNote = $('[data-role="image-dir"]', el);
     const imageActions = $('[data-role="image-actions"]', el);
@@ -156,33 +155,18 @@ Views.settings = {
         return;
       }
       if (a === 'toggle-bg3d') {
-        const cur = (() => { try { return localStorage.getItem('sd_v1_bg3d') !== '0'; } catch (e) { return true; } })();
+        if (window.Android && window.Android.isDesktop && window.DNSDesktop) {
+          const next = !window.DNSDesktop.sceneEnabled();window.DNSDesktop.setSceneEnabled(next);
+          const value=act.querySelector('.settings-row-value');if(value)value.textContent=bg3dValueText();
+          toast(next?'已开启场景工作台':'已关闭 3D 场景，业务操作不受影响');return;
+        }
+        const cur = (() => { try { return localStorage.getItem('sd_v1_bg3d') === '1'; } catch (e) { return false; } })();
         const next = !cur;
         try { localStorage.setItem('sd_v1_bg3d', next ? '1' : '0'); } catch (e) {}
         if (window.DNSBackground) window.DNSBackground.setEnabled(next);
         const val = act.querySelector('.settings-row-value');
         if (val) val.textContent = bg3dValueText();
-        // 强度行只在开启时出现
-        const card = act.closest('.settings-card');
-        const modeRow = card && card.querySelector('[data-act="toggle-bg3d-mode"]');
-        if (next && !modeRow && card) {
-          card.insertAdjacentHTML('beforeend', row({
-            act: 'toggle-bg3d-mode', title: '背景强度',
-            note: '柔化＝加纸色白纱保证文字清晰；全开＝完整场景',
-            icon: 'image', tone: 'teal', value: bg3dMode === 'full' ? '全开' : '柔化'
-          }));
-        } else if (!next && modeRow) {
-          modeRow.remove();
-        }
-        toast(next ? '已开启 3D 工作台背景' : '已关闭 3D 工作台背景');
-        return;
-      }
-      if (a === 'toggle-bg3d-mode') {
-        const cur = bg3dMode === 'full' ? 'soft' : 'full';
-        if (window.DNSBackground) window.DNSBackground.setMode(cur);
-        const val = act.querySelector('.settings-row-value');
-        if (val) val.textContent = cur === 'full' ? '全开' : '柔化';
-        toast(cur === 'full' ? '已切换为全开场景（界面可能受干扰）' : '已切换为柔化场景（界面优先）');
+        toast(next ? '已开启工作台沙盘卡片' : '已关闭工作台沙盘卡片');
         return;
       }
       if (a === 'backup') {

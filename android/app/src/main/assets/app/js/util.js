@@ -350,6 +350,13 @@ function productImageUrl(src) {
   if (!src) return '';
   const s = String(src);
   if (/^(data:|blob:|https?:|file:|sdimg:)/i.test(s)) return s;
+  // 随应用打包的内置商品图片：bundle:assets/products/xxx.jpg
+  if (/^bundle:/i.test(s)) {
+    if (window.Android && window.Android.imageUrl) {
+      try { return window.Android.imageUrl(s); } catch (_) { /* 落回相对路径 */ }
+    }
+    return s.slice(7);
+  }
   if (window.Android && window.Android.imageUrl) {
     try { return window.Android.imageUrl(s); } catch (_) { return s; }
   }

@@ -7,6 +7,52 @@ window.Views = window.Views || {};
 /* 跨路由暂存：复制新增时携带原单 */
 window.__orderDraft = null;
 
+// Plan before mutating the draft: a rejected merge must leave both rows intact.
+// Selected product IDs are authoritative. Manual entries resolve only when the
+// exact name/specification/unit has no catalog ambiguity; no products are saved here.
+function planOrderItemAddition(items, payload, lookupProducts = () => []) {
+  const text = value => String(value == null ? '' : value).trim();
+  const price = Number(payload.price), quantity = Number(payload.qty);
+  if (!text(payload.name) || !text(payload.qty) || !Number.isFinite(quantity) || quantity <= 0
+      || !Number.isFinite(price) || price < 0 || !Number.isSafeInteger(Math.round(quantity * price * 100))) {
+    throw new Error('请填写有效的货品、数量和单价');
+  }
+  const incoming = { ...payload, amount: Math.round(quantity * price * 100) / 100 };
+  let manual;
+  const resolveManual = () => {
+    if (!manual) {
+      const candidates = lookupProducts(incoming).filter(product => text(product.name) === text(incoming.name)
+        && text(product.spec) === text(incoming.spec) && text(product.unit) === text(incoming.unit));
+      manual = { ambiguous: candidates.length > 1, pid: candidates.length === 1 ? candidates[0].id : null };
+    }
+    return manual;
+  };
+  if (!incoming.pid) {
+    const identity = resolveManual();
+    if (identity.pid) incoming.pid = identity.pid;
+  }
+  const indices = [];
+  items.forEach((item, index) => {
+    if (item.pid && incoming.pid && item.pid !== incoming.pid) return;
+    if (['spec', 'unit', 'remark'].some(key => text(item[key]) !== text(incoming[key])) || Number(item.price) !== price) return;
+    if (!Number.isFinite(Number(item.qty)) || Number(item.qty) <= 0) return;
+    if (!(item.pid && incoming.pid)) {
+      if (text(item.name) !== text(incoming.name)) return;
+      const identity = resolveManual();
+      if (identity.ambiguous || ((item.pid || incoming.pid) && identity.pid !== (item.pid || incoming.pid))) return;
+    }
+    indices.push(index);
+  });
+  if (!indices.length) return { item: incoming, indices, index: items.length };
+  const qty = sumQuantityText([...indices.map(index => items[index].qty), incoming.qty]), numericQty = Number(qty);
+  const cents = Math.round(numericQty * price * 100);
+  if (!Number.isFinite(numericQty) || numericQty <= 0 || formatDecimal(numericQty).replace(/,/g, '') !== qty || !Number.isSafeInteger(cents)) {
+    throw new Error('合并后的数量或金额超出可计算范围，请调整数量');
+  }
+  const first = items[indices[0]];
+  return { item: { ...first, pid: first.pid || incoming.pid || null, qty, amount: cents / 100 }, indices, index: indices[0] };
+}
+
 Views.order = {
   render(params) {
     if (params && params.id && location.hash.indexOf('/edit') >= 0) return this.renderEdit(params.id);
@@ -19,7 +65,7 @@ Views.order = {
     const s = Store.getSettings();
     const draft = window.__orderDraft || {
       id: null, no: Store.nextOrderNo(todayStr()), date: todayStr(),
-      operator: s.operator || '', note: s.note || '',
+      operator: s.operator || '',
       customer: null,
       items: [],
     };
@@ -49,13 +95,16 @@ Views.order = {
             <div class="field"><label class="lab">制单人</label><input data-f="operator" value="${esc(draft.operator)}" placeholder="选填"></div>
           </div>
           <div class="field om-cust-field">
-            <label class="lab">客户</label>
+            <div class="cust-field-head">
+              <label class="lab">客户</label>
+            </div>
             <div class="cust-pick" data-act="pick-cust" role="button" tabindex="0" aria-label="选择客户">
               <span class="cp-ic"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0"/></svg></span>
               <div class="cp-main">
-                <div class="cp-name" data-role="cname">${draft.customer ? esc(draft.customer.name) : '选择客户（可跳过）'}</div>
-                <div class="cp-sub" data-role="csub">${draft.customer ? esc([draft.customer.phone, draft.customer.address].filter(Boolean).join(' · ')) : '未选择时按散客开单'}</div>
+                <div class="cp-name" data-role="cname">${draft.customer ? esc(draft.customer.name) : '选择客户（可选）'}</div>
+                <div class="cp-sub" data-role="csub">${draft.customer ? esc([draft.customer.phone, draft.customer.address].filter(Boolean).join(' · ')) : ''}</div>
               </div>
+              <button type="button" class="cust-clear${draft.customer ? '' : ' hidden'}" data-act="clear-cust" aria-label="取消选择客户" title="取消选择客户"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6"/><path d="M18.5 6l-1 13.2A1.8 1.8 0 0 1 15.7 21H8.3a1.8 1.8 0 0 1-1.8-1.8L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button>
               <span class="cp-arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
             </div>
           </div>
@@ -63,11 +112,6 @@ Views.order = {
 
         <div class="section-title">货品明细</div>
         <div class="order-items-grid" data-role="items"></div>
-
-        <div class="section-title">整单备注 <span class="st-hint">打印在单据底部</span></div>
-        <div class="order-meta om-card om-note">
-          <textarea data-f="note" rows="2" placeholder="默认使用设置里的备注" aria-label="整单备注">${esc(draft.note)}</textarea>
-        </div>
 
         <div class="order-sum">
           <span>共 <b data-role="qtySum">0</b> 件</span>
@@ -83,6 +127,8 @@ Views.order = {
 
     el.__draft = draft;
     let saving = false;
+    const priceConfirmations = new WeakMap();
+    let priceConfirmationSequence = 0;
     const dialogs = new Set();
     const trackDialog = mask => { for(const old of dialogs)if(!old.isConnected)dialogs.delete(old);dialogs.add(mask); };
     el.dispose = () => { for(const mask of dialogs)mask.remove();dialogs.clear(); };
@@ -118,7 +164,7 @@ Views.order = {
       const display = [it.name, it.spec].filter(Boolean).join(' ');
       const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
       it.amount = Math.round(q * p * 100) / 100;
-      const meta = (q ? fmtNum(q) + (it.unit ? ' ' + it.unit : '') : '数量 0') + ' × ¥' + fmtMoney(p);
+      const meta = (q ? fmtNum(q) + (it.unit ? ' ' + it.unit : '') : '数量 0') + ' × ¥' + fmtPrice(p);
       const img = itemImage(it);
       return `
         <div class="pm-card oi-card" data-idx="${i}" role="button" tabindex="0" aria-label="编辑货品 ${esc(it.name || '')}">
@@ -146,12 +192,30 @@ Views.order = {
       itemsBox.innerHTML = list.map(cardHtml).join('') + addItemCard;
       recalc();
     }
+    function refreshAddedItem(addition, previous) {
+      if (addition.indices.length > 1) { renderItems(); return; }
+      if (addition.indices.length === 1) {
+        const card = itemsBox.querySelector('.oi-card[data-idx="' + addition.index + '"]');
+        if (!card) { renderItems(); return; }
+        if (previous.pid !== addition.item.pid) card.outerHTML = cardHtml(addition.item, addition.index);
+        else {
+          card.querySelector('.pm-price').textContent = '¥' + fmtMoney(addition.item.amount);
+          card.querySelector('.pm-meta').textContent = fmtNum(addition.item.qty) + (addition.item.unit ? ' ' + addition.item.unit : '') + ' × ¥' + fmtPrice(addition.item.price);
+        }
+      } else {
+        const button = itemsBox.querySelector('[data-act="add-item"]');
+        if (!button) { renderItems(); return; }
+        button.insertAdjacentHTML('beforebegin', cardHtml(addition.item, addition.index));
+      }
+      recalc();
+    }
     function recalc() {
-      let qtySum = 0, total = 0;
+      const qtySum = sumQuantities((draft.items || []).map(it => it.qty));
+      let total = 0;
       (draft.items || []).forEach(it => {
         const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
         it.amount = Math.round(q * p * 100) / 100;
-        qtySum += q; total += it.amount;
+        total += it.amount;
       });
       draft.total = Math.round(total * 100) / 100;
       $('[data-role="qtySum"]', el).textContent = fmtNum(qtySum);
@@ -162,6 +226,7 @@ Views.order = {
       const isEdit = idx >= 0;
       const src = isEdit ? draft.items[idx] : { name: '', spec: '', unit: '', qty: '', price: '', pid: null, remark: '' };
       let pickedPid = src.pid || null;
+      let confirmed = false;
       const PICK_PAGE_SIZE = 6;
       let pickPage = 0;
       const mask = document.createElement('div');
@@ -223,7 +288,7 @@ Views.order = {
                   <span class="id-pick-mono"${img ? ' style="display:none"' : ''}>${esc(itemMono(p.name))}</span>
                 </span>
                 <span class="id-pick-info"><b>${esc(p.name)}</b><span>${esc([p.spec, p.unit].filter(Boolean).join(' / ') || '无规格')}</span></span>
-                <span class="id-pick-price">${p.price != null ? '¥' + fmtMoney(p.price) : ''}</span>
+                <span class="id-pick-price">${p.price != null ? '¥' + fmtPrice(p.price) : ''}</span>
               </button>`;
           }).join('');
         }
@@ -267,6 +332,7 @@ Views.order = {
         if (!a) return;
         if (a.dataset.act === 'cancel') { mask.remove(); return; }
         if (a.dataset.act === 'ok') {
+          if (confirmed || !mask.isConnected) return;
           const name = val('name').trim();
           if (!name) { toast('请填写产品名称', true); return; }
           const qty = val('qty').trim(), price = val('price').trim();
@@ -282,9 +348,26 @@ Views.order = {
             qty, price, remark: src.remark || '',
             amount: Math.round((parseFloat(qty) || 0) * (parseFloat(price) || 0) * 100) / 100,
           };
-          if (isEdit) draft.items[idx] = payload; else draft.items.push(payload);
+          let addition, previous;
+          if (!isEdit) {
+            try { addition = planOrderItemAddition(draft.items, payload, item => Store.listProducts(item.name, { includeArchived: true })); }
+            catch (error) { toast(error.message, true); return; }
+            previous = draft.items[addition.index];
+          }
+          confirmed = true;
+          a.disabled = true;
+          if (isEdit) draft.items[idx] = payload;
+          else if (addition.indices.length) {
+            draft.items[addition.index] = addition.item;
+            for (let i = addition.indices.length - 1; i > 0; i--) draft.items.splice(addition.indices[i], 1);
+          } else draft.items.push(addition.item);
+          priceConfirmations.set(draft.items[isEdit ? idx : addition.index], ++priceConfirmationSequence);
           mask.remove();
-          renderItems();
+          if (isEdit) renderItems();
+          else {
+            refreshAddedItem(addition, previous);
+            if (addition.indices.length) toast('已合并相同商品，数量：' + fmtNum(addition.item.qty) + (addition.item.unit ? ' ' + addition.item.unit : ''));
+          }
         }
       });
       updAmt();
@@ -351,8 +434,9 @@ Views.order = {
     }
     function syncCust() {
       const c = draft.customer;
-      $('[data-role="cname"]', el).textContent = c ? c.name : '选择客户（可跳过）';
-      $('[data-role="csub"]', el).textContent = c ? [c.phone, c.address].filter(Boolean).join(' · ') : '未选择时按散客开单';
+      $('[data-role="cname"]', el).textContent = c ? c.name : '选择客户（可选）';
+      $('[data-role="csub"]', el).textContent = c ? [c.phone, c.address].filter(Boolean).join(' · ') : '';
+      $('[data-act="clear-cust"]', el).classList.toggle('hidden', !c);
     }
 
     /* 货品明细通过「圆形 +」弹窗录入（见 openItemDialog），支持手动填写。 */
@@ -364,6 +448,12 @@ Views.order = {
         const a = act.dataset.act;
         if (a === 'back') { history.length > 1 ? history.back() : (location.hash = '#/home'); return; }
         if (a === 'save') { save(); return; }
+        if (a === 'clear-cust') {
+          draft.customer = null;
+          syncCust();
+          $('[data-act="pick-cust"]', el).focus({ preventScroll: true });
+          return;
+        }
         if (a === 'pick-cust') { openCustPicker(); return; }
         if (a === 'add-item') { openItemDialog(-1); return; }
         if (a === 'del-item') { const idx = +act.dataset.idx; draft.items.splice(idx, 1); renderItems(); return; }
@@ -428,18 +518,27 @@ Views.order = {
           }
           clean.forEach(it => {
             if (!it.pid || !Store.getProduct(it.pid)) {
-              const p = Store.listProducts(it.name, { includeArchived: true }).find(x => x.name === it.name && (x.spec || '') === it.spec);
-              const product = p || Store.upsertProduct({ name: it.name, spec: it.spec, unit: it.unit, price: it.price });
+              const matches = Store.listProducts(it.name, { includeArchived: true }).filter(product => String(product.name || '').trim() === it.name
+                && String(product.spec || '').trim() === it.spec && String(product.unit || '').trim() === it.unit);
+              if (matches.length > 1) throw new Error('同名同规格商品有多条，请在货品编辑窗口从商品库选择具体商品后保存');
+              const product = matches[0] || Store.upsertProduct({ name: it.name, spec: it.spec, unit: it.unit, price: it.price });
               it.pid = product.id;
             }
           });
           const custId = customer ? customer.id : null;
-          clean.forEach(it => Store.setLastPrice(custId, it.pid, it.price));
+          // Merging preserves the first card's position. Remember the last
+          // confirmed price, not whichever differently-priced row sits last.
+          const rememberedPrices = new Map();
+          clean.forEach((it, index) => {
+            const sequence = priceConfirmations.get(draft.items[index]) || 0;
+            const previous = rememberedPrices.get(it.pid);
+            if (!previous || sequence >= previous.sequence) rememberedPrices.set(it.pid, { price: it.price, sequence });
+          });
+          for (const [pid, entry] of rememberedPrices) Store.setLastPrice(custId, pid, entry.price);
           const payload = {
             no: draft.no || Store.nextOrderNo(draft.date),
             date: draft.date || todayStr(),
             operator: (draft.operator || '').trim(),
-            note: (draft.note || '').trim(),
             customer,
             items: clean,
             total,
@@ -474,7 +573,7 @@ Views.order = {
     }
     const prev = Store.siblingOrder(id, -1);
     const next = Store.siblingOrder(id, 1);
-    const qtySum = o.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
+    const qtySum = sumQuantities(o.items.map(i => i.qty));
 
     el.innerHTML = `
       <div class="topbar">
@@ -496,7 +595,7 @@ Views.order = {
           <div class="dc-body">
             <div class="dc-meta">
               <div class="dc-meta-group dc-customer">
-                <div class="dc-line dc-span2"><span class="k">客户</span><span class="v">${esc((o.customer && o.customer.name) || '散客')}</span></div>
+                <div class="dc-line dc-span2"><span class="k">客户</span><span class="v">${esc((o.customer && o.customer.name) || '')}</span></div>
                 ${o.customer && o.customer.phone ? `<div class="dc-line"><span class="k">电话</span><span class="v">${esc(o.customer.phone)}</span></div>` : ''}
                 ${o.customer && o.customer.contact ? `<div class="dc-line"><span class="k">联系人</span><span class="v">${esc(o.customer.contact)}</span></div>` : ''}
                 ${o.customer && o.customer.address ? `<div class="dc-line dc-span2"><span class="k">地址</span><span class="v">${esc(o.customer.address)}</span></div>` : ''}
@@ -516,7 +615,7 @@ Views.order = {
                     <td>${esc(it.spec || '-')}</td>
                     <td>${esc(it.unit || '-')}</td>
                     <td class="num">${fmtNum(it.qty)}</td>
-                    <td class="num">${fmtMoney(it.price)}</td>
+                    <td class="num">${fmtPrice(it.price)}</td>
                     <td class="num">${fmtMoney(it.amount)}</td>
                   </tr>`).join('')}
               </tbody>
@@ -570,7 +669,7 @@ Views.order = {
     if (!o) { location.hash = '#/orders'; return document.createElement('div'); }
     window.__orderDraft = {
       id: o.id, no: o.no, date: o.date,
-      operator: o.operator || '', note: o.note || '',
+      operator: o.operator || '',
       customer: o.customer ? { ...o.customer } : null,
       items: o.items.map(i => ({ pid: i.pid, name: i.name, spec: i.spec || '', unit: i.unit || '', qty: String(i.qty), price: String(i.price), amount: i.amount, remark: i.remark || '' })),
     };

@@ -24,7 +24,7 @@
   </svg>
 
   <header class="app-header">
-    <a class="brand" href="#" aria-label="送货宝首页">
+    <a class="brand" href="#/orders" aria-label="返回送货单首页">
       <img src="assets/brand/dns-icon.svg" alt="送货宝" width="41" height="41">
       <span><strong>送货宝</strong></span>
     </a>
@@ -35,13 +35,12 @@
       <div id="search-results" class="search-results" hidden></div>
     </div>
     <button class="new-order-button" data-action="new"><svg><use href="#i-plus"/></svg>新建送货单</button>
-    <button class="local-account" data-module="settings" aria-label="本机设置"><span>宝</span><span><b>本机工作台</b></span><svg><use href="#i-chevron"/></svg></button>
+    <button class="local-account" data-module="settings" aria-label="本机设置"><span>宝</span><span><b>本机设置</b></span><svg><use href="#i-chevron"/></svg></button>
   </header>
 
   <nav class="navigation" aria-label="功能导航">
     <div class="navigation-main">
-      <button class="nav-item active" data-module="home" title="工作台" aria-label="工作台" aria-current="page"><svg><use href="#i-grid"/></svg><span>工作台</span></button>
-      <button class="nav-item" data-module="orders" title="送货单" aria-label="送货单"><svg><use href="#i-file"/></svg><span>送货单</span></button>
+      <button class="nav-item active" data-module="orders" title="送货单" aria-label="送货单" aria-current="page"><svg><use href="#i-file"/></svg><span>送货单</span></button>
       <button class="nav-item" data-module="products" title="商品资料" aria-label="商品资料"><svg><use href="#i-box"/></svg><span>商品</span></button>
       <button class="nav-item" data-module="customers" title="客户资料" aria-label="客户资料"><svg><use href="#i-people"/></svg><span>客户</span></button>
       <button class="nav-item" data-module="stats" title="统计对账" aria-label="统计对账"><svg><use href="#i-chart"/></svg><span>对账</span></button>
@@ -65,19 +64,17 @@
     </div>
 
     <section id="dispatch-panel" class="fixed-pane dispatch-pane" aria-labelledby="dispatch-title">
-      <header class="fixed-pane-heading"><h2 id="dispatch-title">今日送货</h2><button class="fixed-text-button" data-action="dispatch-expand">全部单据</button></header>
-      <div id="dispatch-body" class="fixed-pane-body" data-desktop-scroll></div>
-      <div id="dispatch-collection" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
+      <header class="fixed-pane-heading"><h2 id="dispatch-title">送货单</h2></header>
+      <div id="dispatch-body" class="fixed-pane-body" data-desktop-scroll><div id="dispatch-collection"></div></div>
     </section>
     <section id="statistics-panel" class="fixed-pane statistics-pane" aria-labelledby="statistics-title">
-      <header class="fixed-pane-heading"><h2 id="statistics-title">统计对账</h2><button class="fixed-text-button" data-action="statistics-expand">展开</button></header>
+      <header class="fixed-pane-heading"><h2 id="statistics-title">本月销售概览</h2><button class="fixed-text-button" data-action="statistics-expand">统计 / 对账</button></header>
       <div id="statistics-summary" class="fixed-pane-body"></div>
       <div id="statistics-view" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
     </section>
-    <section id="context-panel" class="fixed-pane selection-pane" aria-labelledby="selection-title">
-      <header class="fixed-pane-heading"><h2 id="selection-title">当前单据</h2><button class="fixed-text-button" data-action="selection-expand">详细查看</button></header>
+    <section id="context-panel" class="fixed-pane selection-pane selection-flyout" role="region" aria-labelledby="selection-title" hidden>
+      <header class="fixed-pane-heading"><h2 id="selection-title">当前单据</h2><div class="selection-heading-actions"><button class="fixed-text-button" data-action="selection-expand">详细查看</button><button class="selection-close" data-action="selection-close" title="收起单据" aria-label="收起单据"><svg><use href="#i-close"/></svg></button></div></header>
       <div id="selection-summary" class="fixed-pane-body"></div>
-      <div id="selection-view" class="fixed-view-host fixed-pane-body" data-desktop-scroll hidden></div>
       <div id="selection-actions" class="fixed-selection-actions" hidden></div>
     </section>
 

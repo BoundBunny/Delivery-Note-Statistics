@@ -4,9 +4,12 @@
 'use strict';
 window.Views = window.Views || {};
 
-function dataListView({ kind, title }) {
+function dataListView({ kind, title, editId }) {
   // kind: 'customers' | 'products'
-  const st = { kw: '', editing: null };
+  const st = { kw: '', editing: editId || null };
+  const desktopOffset = () => window.Android && window.Android.isDesktop ? parseFloat(getComputedStyle(document.body).getPropertyValue('--dns-header-height')) || 0 : 0;
+  const scrollHost = () => el.closest('[data-desktop-scroll]');
+  const scrollTopEdge = () => scrollHost() ? scrollHost().getBoundingClientRect().top : desktopOffset();
   const isCustomers = kind === 'customers';
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('');
   let kwTimer = null, layoutFrame = null, scrollFrame = null, indexToastTimer = null;
@@ -20,7 +23,7 @@ function dataListView({ kind, title }) {
     const groups = $$('[data-customer-group]', el);
     const toolbarHeight = $('.customer-toolbar', el).getBoundingClientRect().height;
     let current = groups[0];
-    groups.forEach(group => { if (group.getBoundingClientRect().top <= toolbarHeight + 18) current = group; });
+    groups.forEach(group => { if (group.getBoundingClientRect().top <= scrollTopEdge() + toolbarHeight + 18) current = group; });
     $$('[data-customer-letter]', el).forEach(button => {
       const active = Boolean(current && current.dataset.customerGroup === button.dataset.customerLetter);
       button.classList.toggle('on', active);
@@ -43,8 +46,9 @@ function dataListView({ kind, title }) {
   const jumpToLetter = letter => {
     const group = $('[data-customer-group="' + letter + '"]', el);
     if (!group) return;
-    const top = window.scrollY + group.getBoundingClientRect().top - $('.customer-toolbar', el).getBoundingClientRect().height - 4;
-    window.scrollTo({ top: Math.max(0, top), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    const host = scrollHost();
+    const top = (host ? host.scrollTop : window.scrollY) + group.getBoundingClientRect().top - $('.customer-toolbar', el).getBoundingClientRect().height - scrollTopEdge() - 4;
+    (host || window).scrollTo({ top: Math.max(0, top), behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     const indicator = $('[data-role="index-toast"]', el);
     indicator.textContent = letter;
     indicator.classList.add('show');
@@ -247,7 +251,7 @@ function dataListView({ kind, title }) {
 
   let resizeObserver = null;
   if (isCustomers) {
-    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('scroll', onScroll, { passive: true, capture: true });
     window.addEventListener('resize', updateLayout);
     if (window.ResizeObserver) {
       resizeObserver = new ResizeObserver(updateLayout);
@@ -261,14 +265,14 @@ function dataListView({ kind, title }) {
     if (layoutFrame !== null) cancelAnimationFrame(layoutFrame);
     if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
     if (resizeObserver) resizeObserver.disconnect();
-    window.removeEventListener('scroll', onScroll);
+    window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', updateLayout);
   };
 
   return el;
 }
 
-Views.customers = { render() { return dataListView({ kind: 'customers', title: '客户管理' }); } };
+Views.customers = { render(params) { const id=params&&params.edit;return dataListView({ kind:'customers',title:'客户管理',editId:id==='new'||Store.getCustomer(id)?id:null }); } };
 
 /* ============================================================
  * views/data.js — 商品管理（卡片网格视图）
@@ -277,7 +281,7 @@ Views.customers = { render() { return dataListView({ kind: 'customers', title: '
  *   每张卡片：图片区 + 左下角(名称/单价/规格单位) + 右侧垃圾桶(二次确认删除)。
  *   网格最后一张为「圆形 +」添加商品卡片。
  * ============================================================ */
-function productCardView() {
+function productCardView(params) {
   const CATS = [
     { key: 'all', label: '所有', icon: '<rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/>' },
     { key: 'snack', label: '休闲零食类', icon: '<circle cx="12" cy="12" r="8"/><circle cx="9" cy="10" r=".95" fill="currentColor" stroke="none"/><circle cx="14.6" cy="9.4" r=".95" fill="currentColor" stroke="none"/><circle cx="12.4" cy="14.1" r=".95" fill="currentColor" stroke="none"/><circle cx="8.7" cy="14.7" r=".95" fill="currentColor" stroke="none"/>' },
@@ -316,6 +320,9 @@ function productCardView() {
   };
 
   const st = { kw: '', category: 'all', editing: null, image: '' };
+  // 支持 #/products?cat=drink 直接定位到某个分类（工作台沙盘卡片点进来）
+  const wantCat = params && params.cat ? String(params.cat) : '';
+  if (wantCat && CATS.some(c => c.key === wantCat)) st.category = wantCat;
   let kwTimer = null;
 
   const el = document.createElement('div');
@@ -485,6 +492,7 @@ function productCardView() {
 
   renderCats();
   renderGrid();
+  if (params && params.edit && (params.edit === 'new' || Store.getProduct(params.edit))) openForm(params.edit);
 
   el.addEventListener('click', async e => {
     const catBtn = e.target.closest('[data-cat]');
@@ -538,4 +546,4 @@ function productCardView() {
   return el;
 }
 
-Views.products = { render() { return productCardView(); } };
+Views.products = { render(params) { return productCardView(params); } };

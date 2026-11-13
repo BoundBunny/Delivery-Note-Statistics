@@ -74,7 +74,8 @@ test('malformed backup data is rejected before changing memory or storage', () =
     { settings: { noPrefix: 123 } },
   ];
   for (const data of cases) {
-    assert.throws(() => store.importJSON(JSON.stringify({ app: 'songhuodan', version: 1, data })), undefined, JSON.stringify(data));
+    const snapshot = data && typeof data === 'object' && !Array.isArray(data) ? { customers: [], products: [], orders: [], ...data } : data;
+    assert.throws(() => store.importJSON(JSON.stringify({ app: 'songhuodan', version: 1, data: snapshot })), undefined, JSON.stringify(data));
     assert.deepEqual(JSON.parse(store.exportJSON()).data, JSON.parse(original).data);
     assert.equal(JSON.stringify([...values]), disk);
   }
@@ -92,10 +93,13 @@ test('valid backups round trip and fill missing settings', () => {
   assert.equal(store.getSettings().company, 'Company');
 });
 
-test('restoring without a sequence map does not duplicate existing order numbers', () => {
+test('restoring a legacy backup without a sequence map does not duplicate existing order numbers', () => {
   const { store } = createStore();
   store.addOrder(order());
   const backup = JSON.parse(store.exportJSON());
+  backup.version = 1;
+  delete backup.kind;
+  delete backup.catalog;
   delete backup.data.seqMap;
   store.importJSON(JSON.stringify(backup));
   assert.equal(store.nextOrderNo('2026-11-08'), 'SD-20261108-002');
@@ -103,7 +107,7 @@ test('restoring without a sequence map does not duplicate existing order numbers
 
 test('sequence reclamation supports four digits and never reuses a live number', () => {
   const { store } = createStore();
-  store.importJSON(JSON.stringify({ app: 'songhuodan', data: { seqMap: { '2026-11-08': 1000 } } }));
+  store.importJSON(JSON.stringify({ app: 'songhuodan', data: { customers: [], products: [], orders: [], seqMap: { '2026-11-08': 1000 } } }));
   store.reclaimNo('SD-20261108-1000');
   assert.equal(store.nextOrderNo('2026-11-08'), 'SD-20261108-1000');
   store.addOrder(order({ no: 'SD-20261108-1000' }));

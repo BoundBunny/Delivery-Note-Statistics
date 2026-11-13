@@ -56,6 +56,16 @@ app.whenReady().then(async () => {
   check('remembered minimize skips prompt', (await js("!!document.querySelector('.close-prompt')")) === false);
   check('remembered minimize hides window', !win.isVisible());
 
+  // 4) 已记住“关闭=最小化到托盘”时，点最小化仍应进入任务栏，而不是托盘
+  win.show();
+  await pause(300);
+  win.minimize();
+  await pause(400);
+  check('minimize button goes to taskbar (not tray)', win.isMinimized());
+  win.restore();
+  await pause(300);
+  check('restore brings window back', win.isVisible() && !win.isMinimized());
+
   win.destroy();
   const ok = results.every(r => r[1]);
   console.log(ok ? 'FLOW_OK' : 'FLOW_FAIL');

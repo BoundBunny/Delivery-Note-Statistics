@@ -5,9 +5,9 @@
 window.Views = window.Views || {};
 
 Views.orders = {
-  state: { range: 'month', from: '', to: '', kw: '' },
+  state: { range: 'today', from: '', to: '', kw: '' },
 
-  render() {
+  render(options = {}) {
     const st = this.state;
     const today = todayStr();
     const [wFrom, wTo] = weekRange();
@@ -24,14 +24,18 @@ Views.orders = {
     }
 
     const el = document.createElement('div');
-    el.className = 'view active';
+    el.className = 'view active' + (options.desktop ? ' desktop-orders' : '');
 
     const apply = () => {
-      if(!validDateRange(st.from,st.to)){ $('[data-role="list"]',el).replaceChildren();$('[data-role="sum"]',el).textContent='日期范围无效，请修正后查询';return; }
+      if(!validDateRange(st.from,st.to)){ $('[data-role="list"]',el).replaceChildren();$('[data-role="sum"]',el).textContent='日期范围无效，请修正后查询';if(options.desktop)$('[data-role="overview"]',el).replaceChildren();options.onChange?.([]);return; }
       const list = Store.listOrders({ from: st.from || undefined, to: st.to || undefined, keyword: st.kw, customerId:st.customerId });
-      const qtySum = list.reduce((a, o) => a + o.items.reduce((x, i) => x + (Number(i.qty) || 0), 0), 0);
+      const qtySum = sumQuantities(list.flatMap(o => o.items.map(i => i.qty)));
       const total = Math.round(list.reduce((a, o) => a + (o.total || 0), 0) * 100) / 100;
-      $('[data-role="list"]', el).innerHTML = list.length ? list.map(o => `
+      $('[data-role="list"]', el).innerHTML = list.length ? list.map(o => options.desktop ? `
+        <button type="button" class="fixed-order-row" data-open="${esc(o.id)}" data-order-id="${esc(o.id)}" aria-pressed="false" aria-controls="context-panel" aria-expanded="false">
+          <span><b>${esc(o.customer?.name || '未选客户')}</b><small>${esc(o.no)}</small><small>${esc(o.date)}</small></span>
+          <strong>¥ ${fmtMoney(o.total)}</strong>
+        </button>` : `
         <div class="list-item tri-strip" data-open="${o.id}">
           <div class="li-main">
             <div class="li-title">${esc((o.customer && o.customer.name) || '散客')}</div>
@@ -39,7 +43,7 @@ Views.orders = {
           </div>
           <div class="li-end">
             <div class="num">${numberHtml(o.total, { money: true, prefix: '¥', label: '单据金额' })}</div>
-            <div class="cap">${numberHtml(o.items.reduce((x, i) => x + (Number(i.qty) || 0), 0), { suffix: ' 件', label: '单据数量' })}</div>
+            <div class="cap">${numberHtml(sumQuantities(o.items.map(i => i.qty)), { suffix: ' 件', label: '单据数量' })}</div>
           </div>
           <span class="chevron"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span>
         </div>`).join('') : `
@@ -47,29 +51,43 @@ Views.orders = {
       $('[data-role="sum"]', el).innerHTML = list.length
         ? `<span>共 ${list.length} 张</span><span>${numberHtml(qtySum, { suffix: ' 件', label: '数量合计' })}</span><span>${numberHtml(total, { money: true, prefix: '¥', label: '金额合计' })}</span>`
         : '暂无数据';
+      if(options.desktop){
+        const label=ranges[st.range]?.[0]||'当前范围';
+        $('[data-role="overview"]',el).innerHTML=`<div class="metric"><div class="label">${label}单据</div><div class="value" data-order-count>${list.length}<span class="unit">张</span></div></div><div class="metric money"><div class="label">${label}金额（元）</div><div class="value" data-order-amount title="¥ ${fmtMoney(total)}">${fmtMoney(total)}</div></div>`;
+        $('[data-role="sum"]',el).textContent=(st.range==='all'?'全部日期':st.from===st.to?st.from:st.from+' 至 '+st.to)+' · '+list.length+' 张单据'+(st.kw||st.customerId?' · 筛选结果':'');
+      }
+      options.onChange?.(list);
     };
 
     el.innerHTML = `
-      <div class="topbar">
+      ${options.desktop ? '<div class="dispatch-today" data-role="overview" aria-label="当前筛选范围汇总"></div>' : `<div class="topbar">
         <h1>送货单据</h1>
         <button class="icbtn" data-act="export"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></button>
-      </div>
+      </div>`}
       <div class="seg">
-        ${Object.keys(ranges).map(r => `<button data-range="${r}" class="${st.range === r ? 'on' : ''}">${ranges[r][0]}</button>`).join('')}
+        ${Object.keys(ranges).filter(r=>!options.desktop||r!=='week').map(r => `<button data-range="${r}" class="${st.range === r ? 'on' : ''}">${ranges[r][0]}</button>`).join('')}
       </div>
       <div class="searchbar">
         <input class="input" placeholder="搜索单号 / 客户名称" data-role="kw" value="${esc(st.kw)}">
         <button class="btn btn-ghost btn-sm" data-act="clear">清空</button>
+        ${options.desktop ? '<button class="icbtn orders-export" data-act="export" title="导出当前筛选的送货单" aria-label="导出当前筛选的送货单"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></button>' : ''}
       </div>
-      <div class="hidden" data-role="custom" style="display:flex;gap:8px;margin:0 16px 10px;align-items:center">
+      <div class="${st.range==='custom'?'':'hidden'}" data-role="custom" style="display:flex;gap:8px;margin:0 16px 10px;align-items:center">
         <input type="date" data-role="from" value="${esc(st.from)}">
         <span style="color:var(--muted)">至</span>
         <input type="date" data-role="to" value="${esc(st.to)}">
       </div>
+      ${options.desktop ? '<div class="orders-customer-filter hidden" data-role="customer-filter"></div>' : ''}
       <div class="orders-summary" data-role="sum"></div>
-      <div class="list" data-role="list"></div>`;
+      <div class="${options.desktop?'fixed-order-list':'list'}" data-role="list"></div>`;
 
-    apply();
+    const syncCustomerFilter=()=>{
+      if(!options.desktop)return;
+      const filter=$('[data-role="customer-filter"]',el);
+      filter.classList.toggle('hidden',!st.customerId);
+      filter.innerHTML=st.customerId?`<span>客户：${esc(Store.getCustomer(st.customerId)?.name||'指定客户')}</span><button type="button" data-act="clear-customer-filter">全部客户</button>`:'';
+    };
+    syncCustomerFilter();apply();
 
     el.addEventListener('click', async e => {
       const rangeBtn = e.target.closest('[data-range]');
@@ -88,12 +106,18 @@ Views.orders = {
         apply();
         return;
       }
+      if(e.target.closest('[data-act="clear-customer-filter"]')){st.customerId='';syncCustomerFilter();apply();return;}
       if (e.target.closest('[data-act="clear"]')) {
+        clearTimeout(kwTimer);
         st.kw = ''; $('[data-role="kw"]', el).value = '';
         apply();
         return;
       }
       if (e.target.closest('[data-act="export"]')) {
+        if (!ensureExportable()) return;
+        clearTimeout(kwTimer);
+        st.kw = $('[data-role="kw"]', el).value;
+        apply();
         if(!validDateRange(st.from,st.to))return;
         const sheet = Store.ordersSheet({ from: st.from || undefined, to: st.to || undefined, keyword: st.kw, customerId:st.customerId });
         const bytes = Xlsx.build([{ name: '送货单', headers: sheet.headers, rows: sheet.rows, widths: sheet.widths, footer: sheet.footer, footerMerge: sheet.footerMerge }]);
@@ -101,19 +125,33 @@ Views.orders = {
         return;
       }
       const open = e.target.closest('[data-open]');
-      if (open) location.hash = '#/order/view?id=' + open.dataset.open;
+      if (open) {
+        if(options.onOpen){e.stopPropagation();options.onOpen(open.dataset.open);}
+        else location.hash = '#/order/view?id=' + open.dataset.open;
+      }
     });
     let kwTimer = null;
     el.addEventListener('input', e => {
       if (!e.target.matches('[data-role="kw"]')) return;
+      st.kw = e.target.value;
       clearTimeout(kwTimer);
-      kwTimer = setTimeout(() => { st.kw = e.target.value; apply(); }, 200);
+      kwTimer = setTimeout(apply, 200);
     });
     el.addEventListener('change', e => {
       if (e.target.matches('[data-role="from"]')) { st.from = e.target.value; apply(); }
       if (e.target.matches('[data-role="to"]')) { st.to = e.target.value; apply(); }
     });
 
+    el.update = () => {
+      const now=todayStr(),[monthFrom,monthTo]=monthRange(),[weekFrom,weekTo]=weekRange();
+      ranges.today=['今日',now,now];ranges.month=['本月',monthFrom,monthTo];ranges.week=['本周',weekFrom,weekTo];
+      if(st.range!=='custom'){st.from=ranges[st.range][1];st.to=ranges[st.range][2];}
+      $('[data-role="kw"]',el).value=st.kw;
+      $('[data-role="from"]',el).value=st.from;$('[data-role="to"]',el).value=st.to;
+      $('[data-role="custom"]',el).classList.toggle('hidden',st.range!=='custom');
+      $$('[data-range]',el).forEach(button=>button.classList.toggle('on',button.dataset.range===st.range));
+      syncCustomerFilter();apply();
+    };
     el.dispose = () => clearTimeout(kwTimer);
     return el;
   }

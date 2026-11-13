@@ -439,33 +439,51 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 /* ---------- 打印预览 ---------- */
 #print-view .topbar{background:var(--paper);border-bottom:1px solid var(--line)}
 .doc-page{
-  background:#fff;margin:12px auto;padding:20px 16px;
+  background:#fff;margin:12px auto;padding:14px 16px;
   box-shadow:var(--shadow);display:table;width:560px;min-width:560px;
 }
 .doc{
   font-family:"Times New Roman", "SimSun", serif;
   color:#111;font-size:13px;
 }
-.doc .d-title{text-align:center;font-size:24px;font-weight:700;letter-spacing:8px;padding:6px 0 10px}
-.doc .d-no{position:relative;text-align:right;font-size:12px;padding-right:2px}
-.doc .d-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px;font-size:12.5px;margin:8px 0;line-height:1.8;overflow-wrap:anywhere}
+.doc .d-company{overflow-wrap:anywhere}
+.doc .d-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px;min-height:28px}
+.doc .d-company-name{font-size:22px;font-weight:700;line-height:1.25;letter-spacing:1px}
+.doc .d-company-detail{font-size:12px;line-height:1.45;margin-top:2px}
+.doc .d-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:4px;white-space:nowrap}
+.doc .d-no{text-align:right;font-size:11px;line-height:1.45}
+.doc .d-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px;font-size:12.5px;margin:6px 0;line-height:1.5;overflow-wrap:anywhere}
 .doc .d-meta span b{font-weight:600}
+.doc .d-meta .d-date{grid-column:2;text-align:right}
 .doc table{width:100%;min-width:600px;border-collapse:collapse;font-size:12.5px}
-.doc table th,.doc table td{border:1px solid #555;padding:5px 4px;text-align:center;white-space:nowrap}
+.doc table th,.doc table td{border:1px solid #555;padding:4px;text-align:center;white-space:nowrap}
 .doc table th:nth-child(2){min-width:140px}
 .doc table th:nth-child(5),.doc table th:nth-child(6){min-width:112px}
 .doc table th:nth-child(7){min-width:70px}
 .doc table th{background:#F1F2F5;font-weight:600}
-.doc .d-total{display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:8px 2px 6px;font-size:13px}
-.doc .d-total .t-cap{font-weight:600}
-.doc .d-total .t-num{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
-.doc .d-note{border:1px solid #555;padding:7px 8px;font-size:12px;line-height:1.7;margin-bottom:10px;overflow-wrap:anywhere}
+.doc .d-total{display:table-row-group;break-inside:avoid;page-break-inside:avoid}
+.doc .d-total td{padding:4px 8px;white-space:normal;vertical-align:middle}
+.doc .d-total .t-label{font-size:13px;font-weight:700}
+.doc .d-total .t-qty{font-variant-numeric:tabular-nums;white-space:nowrap}
+.doc .d-total .t-cap{text-align:left;overflow-wrap:anywhere;font-size:13px;line-height:1.4}
+.doc .d-total .t-cap span{font-weight:400}
+.doc .d-total .t-cap b{font-weight:600}
+.doc .d-total .t-amount{text-align:right}
+.doc .d-total .t-num{display:block;font-size:22px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.doc .d-note{border:1px solid #555;padding:7px 8px;font-size:12px;line-height:1.7;margin:12px 0 10px;overflow-wrap:anywhere}
 .doc .d-sign{
-  display:grid;grid-template-columns:1fr 1fr;gap:16px;
-  padding:26px 2px 4px;font-size:12.5px;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;
+  padding:8px 0 2px;font-size:12px;line-height:1.6;overflow-wrap:anywhere;
 }
 .doc .d-sign div{text-align:left}
 .doc-wrap{position:relative}
+.doc{position:relative;z-index:0}
+.doc .doc-watermark{
+  position:absolute;inset:0;z-index:-1;
+  background-repeat:repeat;background-size:300px 170px;
+  opacity:.12;pointer-events:none;
+}
+@media print{.doc .doc-watermark{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 .doc .d-cols{display:flex;gap:6px}
 .doc .d-cols .d-main{flex:1}
 @media print{
@@ -477,6 +495,7 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
   .document-scroll{overflow:visible;max-width:none}
   .doc-page{display:block;width:100%;min-width:0;box-shadow:none;margin:0;padding:0;max-width:none}
   .doc table{min-width:0}
+  .doc table tr{break-inside:avoid;page-break-inside:avoid}
   @page{size:A4;margin:12mm}
 }
 
@@ -525,6 +544,29 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 .settings-view .settings-chevron{flex:none;width:18px;height:18px;fill:none;stroke:#BDC0C6;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .settings-view .settings-row-icon{display:flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px}
 .settings-view .settings-row-icon svg{width:28px;height:28px}
+.settings-view .settings-data-intro{padding:17px 20px 4px}
+.settings-view .settings-data-intro h3{margin:0;font-size:13px;font-weight:600;color:var(--muted)}
+.settings-view .settings-data-intro p,.settings-view .settings-data-help{margin:5px 0 0;font-size:11.5px;line-height:1.7;color:var(--muted)}
+.settings-view .settings-data-help{margin:0;padding:14px 20px 0}
+.settings-view .settings-data-group>summary{list-style:none;cursor:pointer}
+.settings-view .settings-data-group>summary::-webkit-details-marker{display:none}
+.settings-view .settings-data-group>summary:focus-visible{outline:2px solid var(--amber);outline-offset:-3px;border-radius:14px}
+.settings-view .settings-data-group[open]>summary .settings-chevron{transform:rotate(90deg)}
+.settings-view .settings-table-tools,.settings-view .settings-data-advanced{border-top:1px solid var(--line)}
+.settings-view .settings-data-advanced [data-act="clear"]{border-top:1px solid var(--line);margin-top:10px}
+.settings-view .settings-data-advanced [data-role="data-dir"]{overflow-wrap:anywhere}
+.settings-view .settings-export-row{cursor:default}
+.settings-view .settings-export-actions{display:flex;align-items:center;gap:10px;flex:none}
+.settings-view .settings-export-actions .exp-format{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--paper);flex:none}
+.settings-view .settings-export-actions .exp-format-opt{appearance:none;-webkit-appearance:none;border:0;background:transparent;height:30px;padding:0 11px;border-radius:7px;font:inherit;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease}
+.settings-view .settings-export-actions .exp-format-opt em{font-style:normal;font-size:10.5px;font-weight:500;opacity:.68;letter-spacing:.2px}
+.settings-view .settings-export-actions .exp-format-opt:hover:not(.is-on){background:rgba(15,23,42,.05);color:var(--ink)}
+.settings-view .settings-export-actions .exp-format-opt.is-on{background:var(--grad-primary);color:#fff;box-shadow:0 3px 8px rgba(99,102,241,.32)}
+.settings-view .settings-export-actions .exp-format-opt.is-on em{opacity:.85}
+.settings-view .settings-export-actions .exp-format-opt:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+.settings-view .settings-export-actions .exp-format.is-busy{opacity:.55;pointer-events:none}
+.settings-view .settings-export-actions .btn{min-width:58px;white-space:nowrap}
+@media(max-width:600px){.settings-view .settings-export-row{gap:10px;flex-wrap:wrap}.settings-view .settings-export-row .settings-row-main{flex-basis:calc(100% - 52px)}.settings-view .settings-export-actions{margin-left:42px}}
 .settings-view .settings-icon-amber,.settings-view .settings-icon-green,.settings-view .settings-icon-blue,.settings-view .settings-icon-teal,.settings-view .settings-icon-purple,.settings-view .settings-icon-violet{color:#78889D}
 .settings-view .settings-icon-red{color:var(--red)}
 /* 关闭行为：单选 + 勾选（与系统风格统一） */
@@ -581,7 +623,7 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 .bp-table tfoot td{font-weight:700;background:#F6F7F9}
 .bp-total{padding:12px 2px 0;font-size:13px;text-align:right}
 .bp-total b{color:var(--ink)}
-.bp-foot{padding:18px 2px 4px;font-size:11.5px;color:#666;line-height:1.6}
+.bp-foot{padding:18px 2px 4px;font-size:11.5px;color:#666;line-height:1.6;white-space:pre-wrap}
 @media print{.bill-paper{box-shadow:none;margin:0;padding:14px;max-width:none;width:100%}.bill-wrap .btn-row{display:none !important}}
 
 /* 全局玻璃按钮：高光边缘、轻透底色和柔和的立体阴影。 */
@@ -1021,6 +1063,37 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
 /* 统计图表 */
 .bar-trend .bt-bar{background:linear-gradient(180deg,#8B5CF6,#6366F1);border-radius:6px 6px 2px 2px}
 .bar-trend .bt-bar.hl{background:linear-gradient(180deg,#F0ABFC,#D946EF)}
+/* Sales charts: named units, a zero-based scale and visible daily amounts. */
+.sales-chart{--sales-plot:140px;--sales-top:24px;--sales-date:25px;--sales-accent:#456B8C;display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;margin-top:6px;color:#60758c;font-size:11px}
+.sales-axis{position:relative;height:calc(var(--sales-top) + var(--sales-plot) + var(--sales-date));font-variant-numeric:tabular-nums;text-align:right}
+.sales-unit{position:absolute;right:0;top:-2px;font-size:10px;color:#8493a1}
+.sales-tick{position:absolute;right:0;transform:translateY(-50%);line-height:1;white-space:nowrap}
+.sales-tick-top{top:var(--sales-top)}
+.sales-tick-mid{top:calc(var(--sales-top) + var(--sales-plot) / 2)}
+.sales-tick-zero{top:calc(var(--sales-top) + var(--sales-plot))}
+.sales-plot-window{position:relative;min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.sales-chart .bar-trend::before{content:"";position:absolute;top:var(--sales-top);left:0;right:0;height:var(--sales-plot);border-top:1px solid #e5ebf0;border-bottom:1px solid #cbd6e0;background:linear-gradient(#e5ebf0,#e5ebf0) center/100% 1px no-repeat;pointer-events:none}
+.sales-chart .bar-trend{position:relative;display:grid;grid-template-columns:repeat(var(--trend-count),minmax(var(--trend-slot),1fr));gap:10px;align-items:stretch;height:calc(var(--sales-top) + var(--sales-plot) + var(--sales-date));padding:var(--sales-top) 0 0;overflow:visible;min-width:calc(var(--trend-count) * var(--trend-slot) + (var(--trend-count) - 1) * 10px)}
+.sales-chart .bt-col{position:relative;display:grid;grid-template-rows:var(--sales-plot) var(--sales-date);gap:0;justify-items:center;height:auto;min-width:0}
+.sales-chart .bt-plot{position:relative;width:100%;height:var(--sales-plot);display:flex;align-items:flex-end;justify-content:center}
+.sales-chart .bt-bar{width:45%;max-width:40px;min-height:0;background:var(--sales-accent);border-radius:3px 3px 0 0}
+.sales-chart .bt-value{position:absolute;left:50%;transform:translateX(-50%);font-size:11px;line-height:16px;font-weight:600;color:#344e68;white-space:nowrap;font-variant-numeric:tabular-nums}
+.sales-chart .bt-x{align-self:center;font-size:11px;line-height:1;transform:none;white-space:nowrap;color:#718295}
+/* 统计页销售趋势：固定柱位宽度并整体居中，日期少时不会把柱子拉得相距很远 */
+.sales-chart:not(.sales-chart-compact) .bar-trend{grid-template-columns:repeat(var(--trend-count),var(--trend-slot));justify-content:start}
+.sales-chart-compact{--sales-plot:112px;--sales-top:18px;--sales-date:20px;--sales-accent:#bf9346;grid-template-columns:33px minmax(0,1fr);gap:5px;font-size:10px}
+.sales-chart-compact .bar-trend{gap:4px;min-width:calc(var(--trend-count) * var(--trend-slot) + (var(--trend-count) - 1) * 4px)}
+.sales-chart-compact .bt-bar{width:58%;max-width:22px}
+.sales-chart-compact .bt-x{font-size:9px}
+/* 有销售额但相对峰值很小（如今天只有一单）时，也画出一根可见的短柱，避免“有单却看不到” */
+.sales-chart .bt-bar--nonzero{min-height:4px}
+.sales-chart-compact .bt-bar--nonzero{min-height:3px}
+.trend-scope{font-size:11.5px;color:var(--muted);line-height:1.6;margin:-2px 0 8px;overflow-wrap:anywhere}
+.trend-explanation{font-size:11.5px;color:var(--muted);line-height:1.7;margin:8px 0 0}
+.sales-chart-single{max-width:640px}
+.trend-totals{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 22px;margin-top:10px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.trend-totals b{font-size:16px;color:var(--ink);margin-left:5px;overflow-wrap:anywhere}
+.trend-empty{padding:24px 0;color:var(--muted);font-size:13px;line-height:1.8}
 .hbar .hb-track{background:#F4F4F5}
 .hbar .hb-fill{background:var(--grad-primary)}
 .hbar .hb-row.blue .hb-fill{background:linear-gradient(90deg,#38BDF8,#6366F1)}
@@ -1084,6 +1157,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
 
 /* 客户：由“虚线投放区”改为一条实线卡片行，与上方输入同一材质 */
 .om-cust-field{margin-top:14px}
+.cust-field-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px;min-height:24px}
+.cust-field-head .lab{margin-bottom:0}
+.cust-clear{flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;transition:color .15s ease,border-color .15s ease,background-color .15s ease,transform .12s ease}
+.cust-clear svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.cust-clear:hover{color:var(--red);border-color:#F6C9D0;background:var(--red-soft)}
+.cust-clear:active{transform:scale(.94)}
+.cust-clear:focus-visible{outline:2px solid var(--amber);outline-offset:2px;border-radius:8px}
 .om-card .cust-pick{
   border:1px solid var(--line-strong);
   background:#fff;
@@ -1263,4 +1343,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
 .pm-restore:hover,.pm-restore:focus-visible{color:var(--amber-deep,#4F46E5);background:var(--amber-soft,#EEF2FF);outline:none}
 /* 销售排行「已下架」徽章 */
 .pr-badge--off{display:inline-block;vertical-align:1px;margin-left:6px;font-size:10px;font-weight:700;color:#6B7280;background:#F3F4F6;border:1px solid #E5E7EB;border-radius:5px;padding:0 5px;line-height:1.6;letter-spacing:.2px}
+
+/* 送货单水印设置：预览 + 开关 */
+.wm-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.wm-preview{flex:0 0 132px;height:72px;border:1px solid var(--line-strong);border-radius:9px;background-color:#fff;background-repeat:repeat;overflow:hidden;transition:opacity .18s ease,filter .18s ease}
+.wm-preview.is-off{opacity:.35;filter:grayscale(1)}
+.wm-copy{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.wm-title{font-size:13.5px;font-weight:600;color:var(--ink);line-height:1.35}
+.wm-desc{font-size:12px;color:var(--muted);line-height:1.45}
+.wm-switch{position:relative;flex:0 0 auto;width:44px;height:26px;margin:0}
+.wm-switch input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:2}
+.wm-slider{position:absolute;inset:0;border-radius:999px;background:#D7DBE2;transition:background .18s ease}
+.wm-slider::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.25);transition:transform .18s ease}
+.wm-switch input:checked + .wm-slider{background:var(--amber)}
+.wm-switch input:checked + .wm-slider::after{transform:translateX(18px)}
+.wm-switch input:focus-visible + .wm-slider{box-shadow:var(--ring)}
 

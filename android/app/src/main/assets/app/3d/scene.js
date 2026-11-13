@@ -95,6 +95,8 @@
    * 1. 渲染器 / 场景 / 相机
    * ============================================================ */
   var canvas = (OPTS && OPTS.canvas) || document.getElementById('bg');
+// 沙盘卡片模式：渲染在工作台里的一张有界卡片中，而不是整窗铺底
+var IS_STAGE = !!(OPTS && OPTS.stage);
   var bootQ = (OPTS && OPTS.params) || new URLSearchParams(location.search);
   var MAX_DPR = Number(bootQ.get('dpr')) || 2;
   var renderer = new THREE.WebGLRenderer({canvas:canvas, antialias:true, alpha:true, powerPreference:'high-performance'});
@@ -107,11 +109,13 @@
   var scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0xF4F7FC, 70, 150);
 
-  var TARGET = new THREE.Vector3(22, 2.0, 15);
+  // 初始观察点；卡片启动时会按实际主模型包围盒重新居中并适配横纵比例。
+  var TARGET = IS_STAGE ? new THREE.Vector3(12.9, 1.4, 14.75) : new THREE.Vector3(22, 2.0, 15);
   var BASE_OFFSET = new THREE.Vector3(1,1,1).normalize().multiplyScalar(62);
   var camera = new THREE.OrthographicCamera(-1,1,1,-1,0.1,220);
   camera.position.copy(TARGET).add(BASE_OFFSET);
   camera.lookAt(TARGET);
+  var stageFit = null;
 
   var hemi = new THREE.HemisphereLight(0xEAF2FF, 0xC9D4E5, 0.38); scene.add(hemi);
   var amb  = new THREE.AmbientLight(0xFFFFFF, 0.08); scene.add(amb);
@@ -233,7 +237,7 @@
    * 4. 月台 / 货车 / 叉车 / 待装托盘
    * ============================================================ */
   var dock = new THREE.Group(); scene.add(dock);
-  dock.userData={module:'orders', name:'单据 · 装车', center:new THREE.Vector3(23,0,10.5), radius:5.6};
+  dock.userData={module:'orders', name:'单据 · 月台', center:new THREE.Vector3(23,0,5.7), radius:5.6};
   clickTargets.push(dock);
   var dockBody=softBox(13,3,2.2,'#F5F7FC',0.12,23,1.5,5.7,dock);
   box(13.2,0.18,0.30,'#DDE5F2',23,3.06,4.65,dock);
@@ -282,6 +286,7 @@
     m.rotation.x=-Math.PI/2; m.position.set(22,-0.64,15); scene.add(m);
   })();
 
+  var orderLabels=[];
   function buildTruck(x){
     var g=new THREE.Group(); g.position.set(x,0,10.4);
     // 货箱 + 顶导流罩
@@ -289,15 +294,15 @@
     softBox(1.9,0.42,4.4,'#E9EFFF',0.1,0,3.05,0.15,g);
     // 侧面品牌条（+X 面，面向相机）
     box(0.02,1.35,3.4,'#E3EBFF',1.18,1.7,0,g);
-    box(0.02,0.16,3.4,'#4F46E5',1.185,1.94,0,g);
-    box(0.02,0.55,0.55,'#4F46E5',1.19,1.45,-0.35,g);
+    box(0.02,0.16,3.4,'#D99A2B',1.185,1.94,0,g);
+    box(0.02,0.55,0.55,'#D99A2B',1.19,1.45,-0.35,g);
     // 尾部双门 + 门缝 + 拉手
     box(2.06,2.0,0.05,'#EDF2FC',0,1.55,-2.51,g);
     box(0.03,2.0,0.06,'#C9D2E2',0,1.55,-2.53,g);
     box(0.12,0.06,0.08,'#94A3B8',-0.55,1.2,-2.56,g);
     box(0.12,0.06,0.08,'#94A3B8', 0.55,1.2,-2.56,g);
     // 驾驶室 + 挡风 + 侧窗
-    softBox(2.3,1.9,1.7,'#4F46E5',0.12,0,1.3,3.0,g);
+    softBox(2.3,1.9,1.7,'#24364B',0.12,0,1.3,3.0,g);
     box(2.0,0.68,0.05,'#DCE9FF',0,1.98,3.88,g);
     box(0.05,0.55,0.85,'#DCE9FF',-1.13,1.85,2.95,g);
     box(0.05,0.55,0.85,'#DCE9FF', 1.13,1.85,2.95,g);
@@ -319,9 +324,10 @@
       var h=new THREE.Mesh(hubGeo,M('#B7C3D6'));
       h.rotation.z=Math.PI/2; h.position.set(p[0]*1.01,0.44,p[1]); g.add(h);
     });
-    var lb=makeLabel('SD-20261107-006','送货单 · 装车中','#4F46E5');
+    var lb=makeLabel('','最近单据','#24364B');
     lb.position.set(0,3.55,0.4); lb.scale.set(3.1,.98,1);
-    if(x<23) g.add(lb);
+    lb.visible=false;
+    g.add(lb); orderLabels.push(lb);
     softShadow(x,10.4,3.8,6.4,.55);
     scene.add(g); return g;
   }
@@ -329,7 +335,9 @@
   var truck2=buildTruck(26);
   truck1.userData.target=1; truck2.userData.target=1;
   truck1.userData.module='orders'; truck1.userData.center=new THREE.Vector3(20,0,10.4);
+  truck1.userData.name='单据 · 货车示意';
   truck2.userData.module='orders'; truck2.userData.center=new THREE.Vector3(26,0,10.4);
+  truck2.userData.name='单据 · 货车示意';
   clickTargets.push(truck1, truck2);
   truck2.scale.set(0.001,0.001,0.001);
 
@@ -352,7 +360,7 @@
     scene.add(g); return g;
   }
   var van=buildVan();
-  van.userData={module:'orders', name:'配送中 · 在途', center:new THREE.Vector3(16.5,0,18.4)};
+  van.userData={module:'orders', name:'单据 · 配送示意', center:new THREE.Vector3(16.5,0,18.4)};
   clickTargets.push(van);
 
   // 叉车
@@ -460,6 +468,34 @@
     sh.position.set(sx*3.0,0.55,2.55); storeG.add(sh);
   });
 
+  // 客户门店小亭（交接点）
+  // 主门店在场地最右侧 (40,7.6)，沙盘卡片取景带内看不到；
+  // 小亭放在月台右前方，避免挡住货车与月台的点击区域。
+  var kiosk=new THREE.Group(); kiosk.position.set(30.8,0,14.2); scene.add(kiosk);
+  kiosk.userData={module:'customers', name:'客户管理 · 门店', center:new THREE.Vector3(30.8,0,14.2), radius:2.3};
+  clickTargets.push(kiosk);
+  softBox(2.8,2.35,2.1,'#FDF7EE',0.12,0,1.18,0,kiosk);
+  box(2.84,0.10,0.16,'#E4C98D',0,2.34,1.02,kiosk);
+  // 条纹雨棚
+  for(var ki=0; ki<5; ki++){
+    softBox(0.50,0.10,0.86,(ki%2?'#FFFFFF':C.violet),0.04,-1.00+ki*0.50,2.10,1.28,kiosk);
+  }
+  box(2.5,0.10,0.07,C.violet,0,1.96,0.86,kiosk);
+  // 店招
+  box(2.05,0.62,0.10,'#4F46E5',0,2.62,1.00,kiosk);
+  var kioskSign=makeTextPlane('门店','#4F46E5','#FFFFFF',1.85,0.58,72);
+  kioskSign.position.set(0,2.62,1.06); kiosk.add(kioskSign);
+  // 门 / 窗
+  box(0.82,1.55,0.07,'#FFFFFF',-0.66,0.78,1.06,kiosk);
+  box(0.72,1.35,0.04,'#BFE0FF',-0.66,0.78,1.10,kiosk);
+  box(0.90,0.80,0.07,'#FFFFFF',0.62,1.15,1.06,kiosk);
+  box(0.80,0.66,0.04,'#BFE0FF',0.62,1.15,1.10,kiosk);
+  // 交接台 + 待送托盘
+  box(1.5,0.09,0.55,'#C9D2E2',0,0.05,1.55,kiosk);
+  box(0.62,0.42,0.50,'#DDB46F',0.85,0.30,1.55,kiosk);
+  box(0.08,0.012,0.46,'#C7A16A',0.85,0.512,1.55,kiosk);
+  softShadow(30.8,14.2,2.6,2.0,.32);
+
   // 树木 / 灌木 / 路灯
   var treePos=[[1.3,2.0],[7.0,1.8],[20.0,1.6],[31.0,1.7],[42.5,27.5],[1.6,27.2],[33.0,27.8]];
   function buildTree(x,z,s){
@@ -511,13 +547,14 @@
   clickTargets.push(podiumGroup);
   var podiumBars=[];
   var podiumLabels=[];
+  var podiumShadows=[];
   [7.5,10.3,13.1].forEach(function(x,i){
     var bar=softBox(2.3,1,2.3,C.podium[i],0.12,x,0.5,26.6,podiumGroup);
     bar.scale.y=0.7; bar.position.y=0.35; bar.userData.h=0.7;
     podiumBars.push(bar);
     var sp=makeLabel('—','第'+(i+1)+'名','#4338CA');
     sp.position.set(x,2.0,26.6); sp.scale.set(2.2,.7,1); podiumGroup.add(sp); podiumLabels.push(sp);
-    softShadow(x,26.6,2.8,2.8,.35);
+    podiumShadows.push(softShadow(x,26.6,2.8,2.8,.35));
   });
 
   // 道路箭头
@@ -565,6 +602,7 @@
     }
     var tex=new THREE.CanvasTexture(cv); tex.encoding=THREE.sRGBEncoding;
     var sp=new THREE.Sprite(new THREE.SpriteMaterial({map:tex,transparent:true,depthWrite:false,depthTest:true}));
+    sp.userData.text=String(text||'');
     sp.scale.set(3.4, cv.height/512*3.4, 1);
     return sp;
   }
@@ -573,7 +611,8 @@
    * 7. 数据模拟与绑定
    * ============================================================ */
   var state = {
-    orders: 6, todayAmount: 1274, amount: 18200, customers: 18, source: '模拟数据',
+    orders: 6, monthOrders: 6, todayAmount: 1274, amount: 18200, customers: 18, source: '演示数据',
+    stacks: 3, vans: 1,          // 动画用的示意数量，不作为真实物流指标展示
     top: [
       {name:'农夫山泉 550ml', qty:320},
       {name:'可口可乐 330ml', qty:268},
@@ -586,8 +625,13 @@
       {no:'SD-20261107-003', customer:'惠民小卖部', total:96}
     ]
   };
+  if(IS_STAGE){
+    state.orders=state.monthOrders=state.todayAmount=state.amount=state.customers=0;
+    state.stacks=state.vans=0;
+    state.top=[]; state.recent=[]; state.source='工作台 Store';
+  }
 
-  function money(n){ return '¥'+Math.round(n).toLocaleString('zh-CN'); }
+  function money(n){ return '¥'+(Number(n)||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function escHtml(s){
     return String(s==null?'':s).replace(/[&<>"']/g, function(c){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -606,23 +650,35 @@
     }).join('');
   }
   function applyData(){
-    // 月台箱堆
-    buildDockStacks(Math.min(6, Math.ceil(state.orders/2)));
+    // 箱堆与车辆只作场景示意，不代表真实装车或配送状态。
+    state.stacks = Math.min(6, Math.ceil(state.orders/2));
+    // 有单才展示配送动画。
+    state.vans = state.orders > 0 ? 1 : 0;
+    buildDockStacks(state.stacks);
     // 货架填充
     var fill = Math.min(1, Math.log10(state.amount+1)/Math.log10(50000));
     buildCategoryCartons(fill);
     // 货车
     truck1.userData.target = state.orders>=1 ? 1 : 0;
     truck2.userData.target = state.orders>=4 ? 1 : 0;
+    orderLabels.forEach(function(label,i){
+      var order=state.recent[i];
+      label.visible=!!order;
+      setSpriteText(label,order ? order.no : '',order ? '最近单据' : '');
+      label.parent.userData.name=order ? '单据 · '+order.no : '单据 · 货车示意';
+    });
     // 展台高度
     var maxQty = Math.max.apply(null, state.top.map(function(p){return p.qty;}).concat([1]));
     podiumBars.forEach(function(bar,i){
-      var p=state.top[i]; if(!p) return;
+      var p=state.top[i];
+      bar.visible=podiumLabels[i].visible=podiumShadows[i].visible=!!p;
+      if(!p){ bar.userData.h=0; setSpriteText(podiumLabels[i],'',''); return; }
       bar.userData.h = 0.6 + 0.75*(p.qty/maxQty);
-      setSpriteText(podiumLabels[i], p.name, '第'+(i+1)+'名 · '+p.qty+'件');
+      setSpriteText(podiumLabels[i], p.name, '第'+(i+1)+'名 · '+p.qty+(p.unit||'件'));
     });
     // 门店
-    storeG.visible = state.customers>0;
+    storeG.visible = !IS_STAGE && state.customers>0;
+    invalidate();
     // UI（仅预览页有这套面板，宿主直挂模式跳过）
     if(OPTS && OPTS.ui){
       var elO=document.getElementById('ui-orders'); if(elO) elO.innerHTML = state.orders+'<small>单</small>';
@@ -660,10 +716,11 @@
       return String(a.date||'') < String(b.date||'') ? 1 : -1;
     });
     state.orders = todayOrders.length;
-    state.todayAmount = Math.round(sum(todayOrders));
-    state.amount = Math.round(sum(monthOrders));
+    state.monthOrders = monthOrders.length;
+    state.todayAmount = Math.round(sum(todayOrders)*100)/100;
+    state.amount = Math.round(sum(monthOrders)*100)/100;
     state.customers = customers.length;
-    if(top.length) state.top = top.map(function(p){ return {name:p.name + (p.spec?' '+p.spec:''), qty:p.qty}; });
+    state.top = top.map(function(p){ return {name:p.name + (p.spec?' '+p.spec:''), qty:p.qty, unit:p.unit}; });
     state.recent = sorted.slice(0,4).map(function(o){
       return {no:o.no, customer:(o.customer && o.customer.name) || '—', total:o.total};
     });
@@ -690,6 +747,7 @@
   }
 
   function setSpriteText(sp,text,sub){
+    sp.userData.text=String(text||'');
     var cv=sp.material.map.image;
     var g=cv.getContext('2d');
     g.clearRect(0,0,cv.width,cv.height);
@@ -711,25 +769,73 @@
   var desiredScale = 1, viewScale = 1;
 
   window.addEventListener('pointermove', function(e){
-    pointer.x=e.clientX/window.innerWidth;
-    pointer.y=e.clientY/window.innerHeight;
+    if(reducedMotion) return;
+    var r = canvas.getBoundingClientRect();
+    pointer.x = r.width ? (e.clientX - r.left) / r.width : 0.5;
+    pointer.y = r.height ? (e.clientY - r.top) / r.height : 0.5;
     targetYaw=(pointer.x-0.5)*0.045;
     targetPitch=-(pointer.y-0.5)*0.030;
   });
   window.addEventListener('pointerleave', function(){ targetYaw=0; targetPitch=0; });
 
+  // 视口尺寸：容器模式（沙盘卡片）用画布自身尺寸，整窗模式回退窗口
+  function viewSize(){
+    var w = (canvas && canvas.clientWidth) || 0;
+    var h = (canvas && canvas.clientHeight) || 0;
+    if(!w || !h){ w = window.innerWidth; h = window.innerHeight; }
+    return {w:w, h:h};
+  }
+
   function updateCameraSize(){
-    var w=window.innerWidth, h=window.innerHeight, aspect=w/h;
-    var fh=50;
-    if(w<1200) fh=50*(1200/w);
-    if(aspect>2.2) fh=56;
+    var vs = viewSize(), w = vs.w, h = vs.h, aspect = w / h;
+    var fh;
+    if(IS_STAGE){
+      // Fit the actual primary models in both axes instead of cropping a
+      // fixed-width strip. The offstage store and moving van are decorative.
+      if(!stageFit){
+        camera.updateMatrixWorld(true);
+        var right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);
+        var up=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,1);
+        var points=[], minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+        clickTargets.forEach(function(root){
+          if(root===storeG || root===van) return;
+          var bounds=new THREE.Box3().setFromObject(root);
+          if(bounds.isEmpty()) return;
+          [bounds.min.x,bounds.max.x].forEach(function(x){
+            [bounds.min.y,bounds.max.y].forEach(function(y){
+              [bounds.min.z,bounds.max.z].forEach(function(z){
+                var p=new THREE.Vector3(x,y,z),px=p.dot(right),py=p.dot(up);
+                points.push(p);minX=Math.min(minX,px);maxX=Math.max(maxX,px);minY=Math.min(minY,py);maxY=Math.max(maxY,py);
+              });
+            });
+          });
+        });
+        var center=TARGET.clone();
+        center.addScaledVector(right,(minX+maxX)/2-center.dot(right));
+        center.addScaledVector(up,(minY+maxY)/2-center.dot(up)+(maxY-minY)*0.06);
+        stageFit={width:(maxX-minX)*1.12,height:(maxY-minY)*1.3,points:points,center:center.clone()};
+        TARGET.copy(center);desiredTarget.copy(center);
+      }
+      fh = Math.max(stageFit.height,stageFit.width/aspect);
+    } else {
+      fh = 50;
+      if(w < 1200) fh = 50 * (1200 / w);
+      if(aspect > 2.2) fh = 56;
+    }
     fh *= viewScale;
     var hw=fh*aspect/2, hh=fh/2;
     camera.left=-hw; camera.right=hw; camera.top=hh; camera.bottom=-hh;
     camera.updateProjectionMatrix();
     renderer.setSize(w,h,false);
+    invalidate();
   }
   window.addEventListener('resize', updateCameraSize);
+  // 卡片尺寸变化（挂载/换父级/窗口缩放）时自动重算
+  try{
+    if(window.ResizeObserver && canvas){
+      new ResizeObserver(function(){ updateCameraSize(); }).observe(canvas);
+    }
+  }catch(err){}
 
   function updateCamera(dt){
     yaw += (targetYaw-yaw)*Math.min(1,dt*6);
@@ -773,7 +879,9 @@
     tagLayer = document.createElement('div'); tagLayer.id = 'tag-layer';
     tagSvg = document.createElementNS('http://www.w3.org/2000/svg','svg'); tagSvg.id = 'tag-svg';
     uiHolder.appendChild(tagSvg); uiHolder.appendChild(tagLayer);
-    (document.body || document.documentElement).appendChild(uiHolder);
+    // 挂到自己的画布容器里；没有容器时才退回 body（预览页独立运行时）
+    var holderHost = (canvas && canvas.parentElement) || document.body || document.documentElement;
+    holderHost.appendChild(uiHolder);
   }
   var tagItems = [];
   TAG_DEFS.forEach(function(def){
@@ -813,6 +921,7 @@
   }
 
   function updateTagPositions(){
+    if(IS_STAGE || !tagItems.length) return;   // 沙盘卡片模式用 HTML 芯片显示分类，不画覆盖层标签
     var showStatic = (currentFocus.module === 'home');
     var hideForCat = !!(hoveredRoot && hoveredRoot.userData && hoveredRoot.userData.cat);
     tagItems.forEach(function(t){
@@ -852,8 +961,10 @@
   }
 
   function setHoverRoot(root){
+    invalidate();
     hoveredRoot = root;
-    document.body.style.cursor = root ? 'pointer' : '';
+    // 只改自己的画布，不要污染宿主页面（body）的全局 cursor
+    try{ if(canvas && canvas.style) canvas.style.cursor = root ? 'pointer' : ''; }catch(err){}
     tagItems.forEach(function(t){
       t.el.classList.toggle('hot', !!root && root.userData && root.userData.module === t.def.module);
     });
@@ -944,6 +1055,7 @@
     guideText.textContent = cat ? label : (label + ' · ' + (meta.sub || ''));
     guideEl.classList.add('on');
     setActiveNav(module, cat ? cat.key : null);
+    invalidate();
 
     if(fromScene){
       var route = module === 'products'
@@ -955,29 +1067,43 @@
 
   function clearFocus(){
     currentFocus = {module:'home', cat:null};
-    desiredTarget.set(22, 2, 15);
+    if(IS_STAGE && stageFit) desiredTarget.copy(stageFit.center);
+    else desiredTarget.set(22, 2, 15);
     desiredScale = 1;
     focusRing.visible = false;
     focusLabel.visible = false;
     guideEl.classList.remove('on');
     setActiveNav('home', null);
+    invalidate();
   }
 
   var raycaster = new THREE.Raycaster();
   var ndc = new THREE.Vector2();
+  function visibleObject(object){
+    for(var node=object;node;node=node.parent) if(!node.visible) return false;
+    return true;
+  }
   function pickRoot(e){
-    ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
-    ndc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    var r = canvas.getBoundingClientRect();
+    ndc.x = (r.width ? (e.clientX - r.left) / r.width : 0) * 2 - 1;
+    ndc.y = -(r.height ? (e.clientY - r.top) / r.height : 0) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
-    var hits = raycaster.intersectObjects(clickTargets, true);
+    var hits = raycaster.intersectObjects(clickTargets.filter(function(root){
+      return visibleObject(root) && root.scale.x>=0.5;
+    }), true).filter(function(hit){ return visibleObject(hit.object); });
     if(!hits.length) return null;
     var o = hits[0].object;
     while(o && !(o.userData && o.userData.module)) o = o.parent;
     return (o && o.userData && o.userData.module) ? o : null;
   }
 
+  // 悬停判定放在 canvas 自己的捕获阶段：宿主也监听 canvas 的 pointermove，
+  // 只有这里先算好，宿主读 api.hovered() 时拿到的才是本次移动的结果
+  canvas.addEventListener('pointermove', function(e){
+    setHoverRoot(pickRoot(e));
+  }, true);
   window.addEventListener('pointermove', function(e){
-    setHoverRoot(e.target === canvas ? pickRoot(e) : null);
+    if(e.target !== canvas && hoveredRoot) setHoverRoot(null);
   });
   canvas.addEventListener('pointerleave', function(){ setHoverRoot(null); });
 
@@ -992,7 +1118,14 @@
     if(dx*dx + dy*dy > 36) return;   // 拖拽不算点击
     if(e.target !== canvas) return;
     var root = pickRoot(e);
-    if(root) selectModule(root.userData.module, root.userData.cat || null, true);
+    if(root){
+      // 沙盘卡片模式：交给宿主决定"点了做什么"（跳商品分类 / 跳单据…）
+      if(OPTS && typeof OPTS.onPick === 'function'){
+        try{ OPTS.onPick(root.userData || {}); }catch(err){}
+      } else {
+        selectModule(root.userData.module, root.userData.cat || null, true);
+      }
+    }
     else clearFocus();
   });
 
@@ -1013,12 +1146,15 @@
   var fpsEl=document.getElementById('fps');
   var fpsValue=0;
   var frames=0, fpsTime=0;
+  var motionQuery=window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  var reducedMotion=!!(motionQuery && motionQuery.matches), needsRender=true;
 
   function setWire(on){
     wireOn=on;
     scene.traverse(function(o){
       if(o.isMesh && o.material && 'wireframe' in o.material){ o.material.wireframe=on; }
     });
+    invalidate();
   }
   function setNight(on){
     nightOn=on;
@@ -1032,18 +1168,41 @@
     fill.intensity = on?0.06:0.22;
     amb.intensity = on?0.06:0.08;
     lampLights.forEach(function(b){ b.material.opacity = on?0.95:0.35; });
+    invalidate();
   }
 
   var lastPaint = 0;
   var rafId = 0;
+  var paused = false;
+  function invalidate(){
+    needsRender=true;
+    if(!rafId && !paused && !document.hidden) rafId=requestAnimationFrame(tick);
+  }
+  function onMotionChange(){
+    reducedMotion=!!(motionQuery && motionQuery.matches);
+    yaw=pitch=targetYaw=targetPitch=0;
+    fpsValue=0; frames=0; fpsTime=0;
+    invalidate();
+  }
+  if(motionQuery){
+    if(motionQuery.addEventListener) motionQuery.addEventListener('change',onMotionChange);
+    else if(motionQuery.addListener) motionQuery.addListener(onMotionChange);
+  }
+  document.addEventListener('visibilitychange',function(){
+    if(document.hidden){ cancelAnimationFrame(rafId);rafId=0;clock.stop(); }
+    else { clock.start();invalidate(); }
+  });
   function tick(now){
-    rafId = requestAnimationFrame(tick);
-    if(document.hidden) return;
+    rafId = 0;
+    if(document.hidden || paused) return;
+    if(reducedMotion && !needsRender) return;
+    if(!reducedMotion) rafId=requestAnimationFrame(tick);
     var maxFps = Number(bootQ.get('maxfps')) || 0;
-    if(maxFps && now && now - lastPaint < (1000 / maxFps) - 2) return;
+    if(!reducedMotion && maxFps && now && now - lastPaint < (1000 / maxFps) - 2) return;
     if(now) lastPaint = now;
-    var dt=Math.min(0.05, clock.getDelta());
-    var t=clock.elapsedTime;
+    var elapsed=clock.getDelta();
+    var dt=reducedMotion ? 1 : Math.min(0.05, elapsed);
+    var t=reducedMotion ? 0 : clock.elapsedTime;
     if(Math.abs(desiredScale-viewScale) > 0.0008){
       viewScale += (desiredScale-viewScale)*Math.min(1,dt*3.2);
       updateCameraSize();
@@ -1076,7 +1235,7 @@
     if(convTex) convTex.offset.x -= dt * 0.35;
     // 路上配送小货车循环
     var vp = (t * 0.09) % 1;
-    van.visible = vp < 0.94;
+    van.visible = state.vans > 0 && vp < 0.94;
     van.position.x = 15.5 + vp * 27.0;
     van.position.z = 18.4;
     van.userData.center.set(van.position.x, 0, van.position.z);
@@ -1108,8 +1267,9 @@
       lampLights.forEach(function(b){ b.material.opacity=0.6+0.35*k; });
     }
     renderer.render(scene,camera);
+    needsRender=false;
 
-    frames++; fpsTime+=dt;
+    frames++; fpsTime+=elapsed;
     if(fpsTime>=0.5){
       fpsValue=Math.round(frames/fpsTime);
       if(fpsEl) fpsEl.textContent=fpsValue+' fps';
@@ -1221,9 +1381,10 @@
    * 11. 启动
    * ============================================================ */
   updateCameraSize();
+  if(IS_STAGE) zoneLabelGroup.visible=false;
   if(q.get('data') === 'local' && tryLocalStore()){ /* 主动读取本地 Store */ }
   else { applyData(); }
-  tick();
+  invalidate();
 
   // 暴露给调试/截图；宿主直挂模式可直接调用，无需 postMessage
   var api = window.__preview = {scene:scene, camera:camera, state:state, applyData:applyData, setNight:setNight,
@@ -1237,14 +1398,54 @@
         if(quality.maxfps && bootQ && typeof bootQ.set === 'function') bootQ.set('maxfps', quality.maxfps);
         if(quality.dpr){
           renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, quality.dpr));
-          renderer.setSize(window.innerWidth, window.innerHeight, false);
+          var vs = viewSize();
+          renderer.setSize(vs.w, vs.h, false);
         }
+        invalidate();
       }catch(err){}
       return true;
     },
-    stats:function(){ return {fps:fpsValue, dpr:renderer.getPixelRatio(), maxfps:Number(bootQ.get('maxfps'))||0}; },
+    stats:function(){ return {fps:reducedMotion?0:fpsValue, dpr:renderer.getPixelRatio(), maxfps:Number(bootQ.get('maxfps'))||0, reducedMotion:reducedMotion}; },
+    // 把世界坐标投影到画布 NDC（验收脚本用来给模型选位）
+    project:function(x, z, y){
+      var p = new THREE.Vector3(x, (y == null ? 0.6 : y), z).project(camera);
+      return [p.x, p.y, p.z];
+    },
+    // 相机与画布的实际参数（调试用）
+    debug:function(){
+      return { l:camera.left, r:camera.right, t:camera.top, b:camera.bottom,
+               pos:camera.position.toArray(), tgt:TARGET.toArray(),
+               canvas:[canvas.clientWidth, canvas.clientHeight], scale:viewScale,
+               orderLabels:orderLabels.map(function(label){return {text:label.userData.text||'',visible:label.visible};}),
+               podium:podiumBars.map(function(bar,i){return {visible:bar.visible,label:podiumLabels[i].userData.text||''};}),
+               framing:stageFit ? stageFit.points.map(function(point){var p=point.clone().project(camera);return [p.x,p.y];}) : [] };
+    },
+    // 当前悬停的模块/分类（宿主用它联动 HTML 芯片高亮）
+    hovered:function(){ return hoveredRoot ? (hoveredRoot.userData || null) : null; },
+    // 可点击对象清单 + 是否落在当前取景内（验收脚本用来确认"看得见的入口"）
+    targets:function(){
+      camera.updateMatrixWorld();
+      var out=[];
+      clickTargets.forEach(function(t){
+        var c = t.userData.center || t.getWorldPosition(new THREE.Vector3());
+        var p = new THREE.Vector3(c.x, 0.6, c.z).project(camera);
+        var sc = t.scale ? t.scale.x : 1;
+        out.push({
+          module: t.userData.module || '', cat: t.userData.cat || '', name: t.userData.name || '',
+          scale: sc,
+          x: c.x, z: c.z,
+          inFrame: visibleObject(t) && sc >= 0.5 && p.x>=-1 && p.x<=1 && p.y>=-1 && p.y<=1 && p.z>-1 && p.z<1,
+          ndc: [p.x, p.y]
+        });
+      });
+      return out;
+    },
     // 卸载：停掉主循环并释放 GPU 资源（宿主重建场景时调用）
-    dispose:function(){ try{ cancelAnimationFrame(rafId); renderer.dispose(); }catch(err){} }
+    dispose:function(){ try{ cancelAnimationFrame(rafId); renderer.dispose(); }catch(err){} },
+    // 卡片离开视口时暂停渲染（不再空跑），回到页面再恢复
+    pause:function(){ paused=true;cancelAnimationFrame(rafId);rafId=0;clock.stop();return true; },
+    resume:function(){ paused=false;clock.start();invalidate();return true; },
+    isPaused:function(){ return paused; }
   };
   window.DNS_SCENE = api;
   if(typeof window.__dnsSceneOnReady === 'function'){ try{ window.__dnsSceneOnReady(api); }catch(err){} }

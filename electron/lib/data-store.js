@@ -4,7 +4,7 @@
  * 目标：
  *  1) 业务数据（设置/客户/商品/单据/一客一价/单号序号）落盘为安装目录
  *     相对路径下的普通文件，而不是浏览器 localStorage（leveldb）。
- *  2) 每次写入同步复制一份到「安装目录之外」的备份目录；程序目录被误删、
+ *  2) 写入后合并更新「安装目录之外」的备份镜像，并保留按日历史快照；程序目录被误删、
  *     损坏或主文件缺失时，启动时自动从备份恢复。
  *  3) 单个键一个文件（写入量小、原子改名、互不影响），语义与 localStorage 一致。
  *
@@ -18,6 +18,7 @@ const path = require('path');
 const DATA_FILE = 'data.json';
 const BACKUP_LATEST = 'data-latest.json';
 const BACKUP_PREFIX = 'data-';
+const DATED_BACKUP = /^data-(\d{8})-\d{6}\.json$/;
 const BACKUP_KEEP = 10;
 const BACKUP_DELAY = 1200;
 // 窗口状态文件放在数据目录里，但它不是业务数据，不能被当成数据键
@@ -36,6 +37,10 @@ function isImage(file) { return IMAGE_EXT.has(path.extname(file).toLowerCase());
 function fileFor(dir, key) { return path.join(dir, encodeURIComponent(String(key)) + '.json'); }
 function keyOf(file) {
   try { return decodeURIComponent(path.basename(file, '.json')); } catch (_) { return path.basename(file, '.json'); }
+}
+function isSnapshotKey(key) {
+  const name = String(key) + '.json';
+  return name === DATA_FILE || name === BACKUP_LATEST || name === WINDOW_STATE_FILE || DATED_BACKUP.test(name);
 }
 
 function createDataStore(options) {
@@ -56,7 +61,7 @@ function createDataStore(options) {
   // 内存态：key -> 原始字符串（与 localStorage 的值语义一致）
   const state = Object.create(null);
   let lastError = null;
-  let lastDated = '';
+  let lastDatedDay = '';
   let backupTimer = null;
   let backupDirty = false;
   const status = {
@@ -99,9 +104,7 @@ function createDataStore(options) {
     try {
       return fs.readdirSync(dir)
         .filter(name => name.endsWith('.json') && !name.startsWith('.'))
-        .filter(name => name !== DATA_FILE && name !== BACKUP_LATEST)
-        .filter(name => name !== WINDOW_STATE_FILE)
-        .filter(name => !(name.startsWith(BACKUP_PREFIX) && /^\d{8}-\d{6}\.json$/.test(name)))
+        .filter(name => !isSnapshotKey(keyOf(name)))
         .map(name => path.join(dir, name));
     } catch (_) { return []; }
   }
@@ -109,6 +112,7 @@ function createDataStore(options) {
     return JSON.stringify({
       app: 'songhuodan',
       version: 1,
+      kind: 'storage',
       updatedAt: new Date().toISOString(),
       data: state,
     }, null, 2);
@@ -126,38 +130,44 @@ function createDataStore(options) {
       });
       fs.writeFileSync(backupLatest, serialize(), 'utf8');
       // 商品图片一并备份（只补新增/变化的文件，不重复拷贝）
-      if (imageDirs.length) backupImages(imageDirs);
+      if (imageDirs.length) {
+        const images = backupImages(imageDirs);
+        if (!images.ok) throw new Error(images.error || '商品图片备份失败');
+      }
       status.backupError = '';
     } catch (err) {
       status.backupError = String(err && err.message || err);
       return false;
     }
     const today = stamp().slice(0, 8);
-    if (lastDated.slice(0, 8) !== today) {
-      const dated = path.join(backupDir, BACKUP_PREFIX + stamp() + '.json');
+    if (lastDatedDay !== today && Object.keys(state).some(key => key.startsWith(BUSINESS_PREFIX))) {
       try {
-        if (!fs.existsSync(dated)) fs.writeFileSync(dated, serialize(), 'utf8');
-        lastDated = dated;
-      } catch (_) { /* ignore */ }
-      rotateBackups();
+        // Find an existing daily snapshot on disk too: restarting the app must
+        // not create another historical snapshot or evict an older backup day.
+        const exists = fs.readdirSync(backupDir).some(name => DATED_BACKUP.exec(name)?.[1] === today);
+        if (!exists) writeAtomic(path.join(backupDir, BACKUP_PREFIX + stamp() + '.json'), serialize());
+        rotateBackups();
+        lastDatedDay = today;
+      } catch (error) {
+        status.backupError = '历史快照备份失败：' + String(error && error.message || error);
+        return false;
+      }
     }
     return true;
   }
   function rotateBackups() {
-    try {
-      const files = fs.readdirSync(backupDir)
-        .filter(name => name.startsWith(BACKUP_PREFIX) && name.endsWith('.json'))
-        .sort();
-      while (files.length > BACKUP_KEEP) {
-        const victim = files.shift();
-        try { fs.rmSync(path.join(backupDir, victim), { force: true }); } catch (_) { /* ignore */ }
-      }
-    } catch (_) { /* ignore */ }
+    const files = fs.readdirSync(backupDir)
+      .filter(name => DATED_BACKUP.test(name))
+      .sort();
+    while (files.length > BACKUP_KEEP) {
+      const victim = files.shift();
+      fs.rmSync(path.join(backupDir, victim), { force: true });
+    }
   }
   function listBackups() {
     try {
       return fs.readdirSync(backupDir)
-        .filter(name => name.startsWith(BACKUP_PREFIX) && name.endsWith('.json'))
+        .filter(name => name === BACKUP_LATEST || DATED_BACKUP.test(name))
         .map(name => path.join(backupDir, name))
         .sort();
     } catch (_) { return []; }
@@ -169,11 +179,13 @@ function createDataStore(options) {
     backupTimer = setTimeout(() => { backupTimer = null; flushBackup(); }, BACKUP_DELAY);
     if (backupTimer && typeof backupTimer.unref === 'function') backupTimer.unref();
   }
-  function flushBackup() {
+  function flushBackup(force = false) {
     if (backupTimer) { clearTimeout(backupTimer); backupTimer = null; }
-    if (!backupDirty) return true;
-    backupDirty = false;
-    return writeBackupMirror();
+    if (!backupDirty && !force) return !status.backupError;
+    const ok = writeBackupMirror();
+    // A failed write is still pending, including after the timer has fired.
+    backupDirty = !ok;
+    return ok;
   }
 
   /* ---------- 启动加载 / 恢复 ----------
@@ -211,8 +223,9 @@ function createDataStore(options) {
     }
     // 3) 整体快照备份（聚合文件）也可用于恢复
     const snapshot = readJson(backupLatest);
-    if (snapshot && snapshot.data && typeof snapshot.data === 'object') {
+    if (snapshot && snapshot.data && typeof snapshot.data === 'object' && !Array.isArray(snapshot.data)) {
       Object.keys(snapshot.data).forEach(key => {
+        if (isSnapshotKey(key)) return; // Older broken restores may have nested snapshots in this map.
         if (key in state) return;
         if (!mainEmpty) return;              // 安装目录仍有数据 → 不复活被用户清掉的键
         const value = snapshot.data[key];
@@ -224,7 +237,8 @@ function createDataStore(options) {
       });
     }
     // 4) 启动即把当前状态镜像到安装目录之外，避免备份长期落后
-    try { writeBackupMirror(); } catch (_) { /* ignore */ }
+    try { if (!writeBackupMirror()) backupDirty = true; }
+    catch (_) { backupDirty = true; }
     return status;
   }
 
@@ -300,13 +314,14 @@ function createDataStore(options) {
   }
 
   /* ---------- 商品图片：跟着数据一起备份 / 恢复 ---------- */
-  function listFiles(dir) {
+  function listFiles(dir, errors) {
     const out = [];
     let entries = [];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return out; }
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (error) { if (errors && error.code !== 'ENOENT') errors.push(String(error.message || error)); return out; }
     entries.forEach(entry => {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) out.push.apply(out, listFiles(full));
+      if (entry.isDirectory()) out.push.apply(out, listFiles(full, errors));
       else if (entry.isFile() && isImage(entry.name)) out.push(full);
     });
     return out;
@@ -314,9 +329,10 @@ function createDataStore(options) {
   function backupImages(imageDirs) {
     if (!ensureDir(backupImageDir)) return { ok: false, error: '无法创建备份目录' };
     let copied = 0;
+    const errors = [];
     (imageDirs || []).forEach(dir => {
       if (!dir) return;
-      listFiles(dir).forEach(src => {
+      listFiles(dir, errors).forEach(src => {
         const target = path.join(backupImageDir, path.basename(src));
         try {
           const st = fs.statSync(src);
@@ -326,10 +342,10 @@ function createDataStore(options) {
           }
           fs.copyFileSync(src, target);
           copied++;
-        } catch (_) { /* ignore */ }
+        } catch (error) { errors.push(String(error && error.message || error)); }
       });
     });
-    return { ok: true, copied };
+    return errors.length ? { ok: false, copied, error: errors.join('; ') } : { ok: true, copied };
   }
   function restoreImages(imageDirs) {
     if (!ensureDir(backupImageDir)) return { ok: false, restored: 0 };

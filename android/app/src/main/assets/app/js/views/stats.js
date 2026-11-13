@@ -73,16 +73,16 @@ Views.stats = {
       const total = Math.round(list.reduce((a, o) => a + (o.total || 0), 0) * 100) / 100;
       const custSet = new Set(list.filter(o => o.customer && o.customer.id).map(o => o.customer.id));
       // 按日趋势
-      const dayMap = {};
+      const dayMap = Object.create(null);
       list.forEach(o => { dayMap[o.date] = (dayMap[o.date] || 0) + (o.total || 0); });
       // 客户排行
-      const custMap = {};
+      const custMap = Object.create(null);
       list.forEach(o => {
         const key = (o.customer && o.customer.name) || '散客';
         custMap[key] = (custMap[key] || 0) + (o.total || 0);
       });
       // 商品排行
-      const prodMap = {};
+      const prodMap = Object.create(null);
       list.forEach(o => o.items.forEach(i => {
         const key = i.name + (i.spec ? ' ' + i.spec : '');
         prodMap[key] = (prodMap[key] || 0) + (i.amount || 0);

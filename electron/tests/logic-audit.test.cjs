@@ -46,12 +46,12 @@ test('corrupt local data is preserved and writes are blocked until explicit rest
   const raw='[{"id":"damaged"',initial={sd_v1_orders:raw};const {store,values}=create(initial,[{name:'Seed'}]);
   assert.equal(values.get('sd_v1_orders'),raw);assert.throws(()=>store.setSettings({company:'Should not overwrite'}));assert.equal(values.get('sd_v1_orders'),raw);
   assert.equal(store.recoveryState().blocked,true);assert.ok(store.exportRecoveryJSON().includes('damaged'));
-  store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{orders:[]}}));assert.equal(store.recoveryState().blocked,false);
+  store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{customers:[],products:[],orders:[]}}));assert.equal(store.recoveryState().blocked,false);
 });
 test('backup total and line amounts must match supported nonnegative order arithmetic',()=>{
   const {store}=create();
-  for(const record of [order({total:7}),order({items:[{name:'Bad',qty:1,price:-3,amount:-3}],total:-3}),order({items:[{name:'Bad',qty:2,price:3,amount:9}],total:9})])assert.throws(()=>store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{orders:[{id:'bad',...record}]}})));
+  for(const record of [order({total:7}),order({items:[{name:'Bad',qty:1,price:-3,amount:-3}],total:-3}),order({items:[{name:'Bad',qty:2,price:3,amount:9}],total:9})])assert.throws(()=>store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{customers:[],products:[],orders:[{id:'bad',...record}]}})));
 });
 test('backup with duplicate order numbers is rejected before overwriting data',()=>{
-  const {store}=create();assert.throws(()=>store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{orders:[{id:'one',...order()},{id:'two',...order()}]}})));assert.equal(store.countAll().orders,0);
+  const {store}=create();assert.throws(()=>store.importJSON(JSON.stringify({app:'songhuodan',version:1,data:{customers:[],products:[],orders:[{id:'one',...order()},{id:'two',...order()}]}})));assert.equal(store.countAll().orders,0);
 });

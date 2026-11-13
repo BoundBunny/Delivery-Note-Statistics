@@ -2,14 +2,26 @@
  * xlsx.js — 极简 Excel .xlsx 生成器（零依赖，离线可用）
  * 通过 ZIP(STORE) + 最小 OOXML 结构实现，支持多 Sheet、
  * 标题合并行、表头/数据/合计样式。
- * API: Xlsx.build([{name, title, headers, rows, widths, footer}]) -> Uint8Array
+   * API: Xlsx.build([{name, title, headers, rows, widths, footer, note}]) -> Uint8Array
  * ============================================================ */
 'use strict';
 (function () {
   var enc = new TextEncoder();
 
   function escXml(s) {
-    return String(s == null ? '' : s)
+    // SpreadsheetML escapes UTF-16 code units with _xHHHH_. Protect literal
+    // escape-looking text first, then encode controls and unpaired surrogates.
+    var text = String(s == null ? '' : s).replace(/_x[0-9a-f]{4}_/gi, function (match) { return '_x005F_' + match.slice(1); });
+    var encoded = '';
+    for (var i = 0; i < text.length; i++) {
+      var code = text.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff && i + 1 < text.length && text.charCodeAt(i + 1) >= 0xdc00 && text.charCodeAt(i + 1) <= 0xdfff) {
+        encoded += text[i] + text[++i];
+      } else if ((code < 32 && code !== 9 && code !== 10) || code === 0xfffe || code === 0xffff || (code >= 0xd800 && code <= 0xdfff)) {
+        encoded += '_x' + code.toString(16).toUpperCase().padStart(4, '0') + '_';
+      } else encoded += text[i];
+    }
+    return encoded
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
   }
@@ -183,6 +195,27 @@
         fc += cell(colLetter(f) + rowIdx, typeof fv === 'number' ? fv : (fv == null ? '' : fv), 3, typeof fv === 'number');
       }
       parts.push('<row r="' + rowIdx + '" ht="20" customHeight="1">' + fc + '</row>');
+      rowIdx++;
+    }
+
+    // Keep bill-wide notes below the total. Split long lines into native
+    // merged rows so even a long note is visible without Excel auto-fit.
+    if (sheet.note != null && String(sheet.note) !== '') {
+      var capacity = Math.max(16, Math.floor(Array.from({ length: nCols }, function (_, index) { return widths[index] || 10; }).reduce(function (a, b) { return a + b; }, 0) - 4));
+      String(sheet.note).split(/\r\n|\r|\n/).forEach(function (line) {
+        var chunks = [], chunk = '', units = 0;
+        for (var character of line) {
+          var size = character.codePointAt(0) > 255 ? 2 : 1;
+          if (units + size > capacity && chunk) { chunks.push(chunk); chunk = ''; units = 0; }
+          chunk += character; units += size;
+        }
+        chunks.push(chunk);
+        chunks.forEach(function (value) {
+          parts.push('<row r="' + rowIdx + '" ht="22" customHeight="1">' + cell('A' + rowIdx, value, 5) + '</row>');
+          if (nCols > 1) merges.push('A' + rowIdx + ':' + colLetter(nCols - 1) + rowIdx);
+          rowIdx++;
+        });
+      });
     }
 
     parts.push('</sheetData>');
@@ -214,12 +247,13 @@
     '<border><left style="thin"><color rgb="FF000000"/></left><right style="thin"><color rgb="FF000000"/></right><top style="thin"><color rgb="FF000000"/></top><bottom style="thin"><color rgb="FF000000"/></bottom><diagonal/></border>' +
     '</borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="5">' +
+    '<cellXfs count="6">' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
     '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
     '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>' +
     '<xf numFmtId="0" fontId="1" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1"/>' +
     '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>' +
     '</cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     '</styleSheet>';

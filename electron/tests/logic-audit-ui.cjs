@@ -35,7 +35,7 @@ app.whenReady().then(async()=>{
   await check('image-only product edits and reverted fields participate in unsaved checks',async()=>{
     await js(`document.querySelector('.products-view [data-act=new]').click();window.imagePickBefore=window.pickProductImage;window.pickProductImage=async()=> 'E:/temporary-image.png';document.querySelector('.products-view [data-act=pick-image]').click();void 0`);await pause(60);
     await js('DNSDesktop.navigate("#/home");void 0');await pause(70);assert.equal(await js('!!document.querySelector("#modal-root .mask")'),true);
-    await js('document.querySelector("#modal-root [data-act=no]").click();void 0');await pause(40);await js('document.querySelector(".products-view [data-act=remove-image]").click();DNSDesktop.navigate("#/home");window.pickProductImage=imagePickBefore;void 0');await pause(120);assert.equal(await js('DNSDesktop.mode'),'home');
+    await js('document.querySelector("#modal-root [data-act=no]").click();void 0');await pause(40);await js('document.querySelector(".products-view [data-act=remove-image]").click();DNSDesktop.navigate("#/home");window.pickProductImage=imagePickBefore;void 0');await pause(120);assert.equal(await js('DNSDesktop.mode'),'orders');
   });
   await check('editor internal Back and direct hash navigation cannot discard a dirty order',async()=>{
     await nav('#/order/new');await js(`document.querySelector('#view-container .view').__draft.items=[{name:'Unsaved',qty:'1',price:'2'}];document.querySelector('#view-container [data-act=back]').click();void 0`);await pause(100);
@@ -51,7 +51,7 @@ app.whenReady().then(async()=>{
   await check('unconfirmed item dialog edits are protected and disposed after approved navigation',async()=>{
     await nav('#/order/new');await js(`document.querySelector('#view-container [data-act=add-item]').click();document.querySelector('.item-dialog [data-role=name]').value='Pending line';location.hash='#/home';void 0`);await pause(120);
     assert.equal(await js('location.hash'),'#/order/new');assert.equal(await js('document.querySelectorAll("#modal-root .mask").length'),2);
-    await js('document.querySelector("#modal-root .confirm-box [data-act=yes]").click();void 0');await pause(130);assert.equal(await js('DNSDesktop.mode'),'home');assert.equal(await js('!!document.querySelector(".item-dialog")'),false);
+    await js('document.querySelector("#modal-root .confirm-box [data-act=yes]").click();void 0');await pause(130);assert.equal(await js('DNSDesktop.mode'),'orders');assert.equal(await js('!!document.querySelector(".item-dialog")'),false);
   });
   await check('customer related orders use exact identity and ignore stale date/keyword filters',async()=>{
     await js(`const c1=Store.upsertCustomer({name:'同名客户'}),c2=Store.upsertCustomer({name:'同名客户'});window.related={c1,c2};Store.addOrder({no:'OLD-C1',date:'2025-01-01',customer:c1,items:[{name:'Water',qty:1,price:6,amount:6}],total:6});Store.addOrder({no:'NEW-C2',date:todayStr(),customer:c2,items:[{name:'Water',qty:1,price:6,amount:6}],total:6});Views.orders.state.range='month';Views.orders.state.kw='stale';void 0`);
@@ -61,7 +61,7 @@ app.whenReady().then(async()=>{
   await check('canceled backup and spreadsheet saves never report export success',async()=>{
     await nav('#/settings');await js(`messages.length=0;document.querySelector('[data-act=backup]').click();void 0`);await pause(180);assert.equal(await js('messages.some(m=>m.includes("备份已导出"))'),false);
     await js(`messages.length=0;document.querySelector('[data-act=exp-products]').click();void 0`);await pause(180);assert.equal(await js('messages.some(m=>m.includes("已导出"))'),false);
-    saveResult={canceled:false,filePath:path.join(temp,'backup.json')};await js('document.querySelector("[data-act=backup]").click();void 0');await wait('messages.includes("备份已导出")');assert.equal(fs.existsSync(saveResult.filePath),true);
+    saveResult={canceled:false,filePath:path.join(temp,'backup.zip')};await js('document.querySelector("[data-act=backup]").click();void 0');await wait('messages.includes("备份已导出")');assert.equal(fs.existsSync(saveResult.filePath),true);
   });
   await check('statistics keeps distinct customers and products separate when display names match',async()=>{
     await js(`const p1=Store.upsertProduct({name:'Same item',spec:'500ml',price:2,barcode:'111'}),p2=Store.upsertProduct({name:'Same item',spec:'500ml',price:4,barcode:'222'});Store.addOrder({no:'IDENTITY-1',date:todayStr(),customer:related.c1,items:[{pid:p1.id,name:'Same item',spec:'500ml',qty:1,price:2,amount:2}],total:2});Store.addOrder({no:'IDENTITY-2',date:todayStr(),customer:related.c2,items:[{pid:p2.id,name:'Same item',spec:'500ml',qty:1,price:4,amount:4}],total:4});void 0`);
@@ -76,13 +76,16 @@ app.whenReady().then(async()=>{
   await check('window-close and reload cancellation preserve dirty drafts; explicit discard permits reload',async()=>{
     await nav('#/order/new');await js(`document.querySelector('#view-container .view').__draft.items=[{name:'Do not lose',qty:'1',price:'2'}];void 0`);unloadChoice=0;win.reload();await pause(350);
     assert.equal(unloadPrompts,1);assert.equal(await js('document.querySelector("#view-container .view").__draft.items[0].name'),'Do not lose');
-    win.close();await pause(200);assert.equal(win.isDestroyed(),false);assert.equal(unloadPrompts,2);
-    unloadChoice=1;win.reload();await pause(300);await wait('!!window.DNSDesktop?.ready');assert.equal(unloadPrompts,3);
+    win.close();await pause(200);assert.equal(win.isDestroyed(),false);assert.equal(unloadPrompts,1);
+    assert.equal(await js('!!document.querySelector(".close-prompt")'),true);
+    await js('document.querySelector(".close-prompt [data-choice=cancel]").click();void 0');await pause(60);
+    assert.equal(await js('document.querySelector("#view-container .view").__draft.items[0].name'),'Do not lose');
+    unloadChoice=1;win.reload();await pause(300);await wait('!!window.DNSDesktop?.ready');assert.equal(unloadPrompts,2);
   });
   await check('corrupt storage remains unchanged, recovery export preserves raw bytes and restore clears protection',async()=>{
-    await nav('#/home');const valid=await js('Store.exportJSON()');const bad='[{"broken-record"';await js('localStorage.setItem("sd_v1_orders",'+JSON.stringify(bad)+');void 0');win.reload();await pause(300);await wait('!!window.DNSDesktop?.ready');
-    assert.equal(await js('Store.recoveryState().blocked'),true);assert.equal(await js('localStorage.getItem("sd_v1_orders")'),bad);assert.equal(await js('document.querySelector("#storage-recovery-notice").hidden'),false);
-    assert.ok((await js('document.querySelector("#dispatch-body").textContent')).includes('暂不可用'));assert.equal(await js('!!document.querySelector("#selection-summary [data-route=\"#/order/new\"]")'),false);
+    await nav('#/home');const valid=await js('Store.exportJSON()');const bad='[{"broken-record"';await js('window.__DNSStorage.setItem("sd_v1_orders",'+JSON.stringify(bad)+');void 0');win.reload();await pause(300);await wait('!!window.DNSDesktop?.ready');
+    assert.equal(await js('Store.recoveryState().blocked'),true);assert.equal(await js('window.__DNSStorage.getItem("sd_v1_orders")'),bad);assert.equal(await js('document.querySelector("#storage-recovery-notice").hidden'),false);
+    assert.ok((await js('document.querySelector("#dispatch-body").textContent')).includes('暂不可用'));assert.equal(await js(`!!document.querySelector('#selection-summary [data-route="#/order/new"]')`),false);
     saveResult={canceled:false,filePath:path.join(temp,'raw-recovery.json')};await js('document.querySelector("[data-action=export-recovery]").click();void 0');
     for(let i=0;i<50&&!fs.existsSync(saveResult.filePath);i++)await pause(50);
     assert.ok(fs.existsSync(saveResult.filePath),await js('document.querySelector("#toast")?.textContent||"No export feedback"'));

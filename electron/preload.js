@@ -47,7 +47,22 @@ const AndroidBridge = {
       .catch(err => { notify('保存失败：' + (err && err.message || err), true);return {ok:false,error:String(err && err.message || err)}; });
   },
 
+  exportBackup(json, fileName) {
+    return ipcRenderer.invoke('sd:exportBackup', { json, fileName })
+      .then(res => { if (res?.ok) notify('已保存到 ' + res.path); return res; })
+      .catch(error => ({ ok: false, error: String(error.message || error) }));
+  },
+  pickBackup() {
+    return ipcRenderer.invoke('sd:pickBackup').catch(error => ({ ok: false, error: String(error.message || error) }));
+  },
+  finishBackupImport(token, keep) {
+    return ipcRenderer.invoke('sd:finishBackupImport', { token, keep }).catch(error => ({ ok: false, error: String(error.message || error) }));
+  },
+
   /* 选择文件并回传文本（回调机制与 Android 版一致：window.__fileCallbacks[cb]） */
+  pickDataFile() {
+    return ipcRenderer.invoke('sd:pickDataFile').catch(error => ({ ok: false, error: String(error.message || error) }));
+  },
   pickFile(callbackId, accept) {
     ipcRenderer.invoke('sd:pickFile', { accept: accept || '*/*' })
       .then(res => {

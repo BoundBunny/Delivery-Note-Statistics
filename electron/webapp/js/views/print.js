@@ -1,46 +1,124 @@
 /* ============================================================
- * views/print.js — 送货单打印预览（复刻三联单模板）
+ * views/print.js — 送货单打印预览
  * 支持：打印 / 存PDF（系统打印）、保存图片（纯Canvas绘制，兼容安卓WebView）、分享
  * ============================================================ */
 'use strict';
 window.Views = window.Views || {};
 
+/* 送货单不再打印电话、地址（用户要求）：公司与客户联系方式均不显示。 */
+
 /* 保存图片：直接用 Canvas 绘制送货单（不依赖 SVG foreignObject，安卓 WebView 更稳） */
+// 公司名称水印：画布版（斜向平铺、品牌深蓝 + 金，极淡，绘制在白底之上、正文之下）
+function paintWatermarkCanvas(ctx, text, W, H, font) {
+  const WM_FONT = '700 34px ' + font;
+  ctx.save();
+  ctx.font = WM_FONT;
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+  const textW = ctx.measureText(text).width;
+  const stepX = Math.max(220, Math.min(900, Math.ceil(textW) + 100));
+  const stepY = 170;
+  let row = 0;
+  for (let gy = -110; gy < H + 130; gy += stepY) {
+    const offset = (row % 2) ? stepX / 2 : 0;
+    for (let gx = -stepX / 2 + offset; gx < W + stepX; gx += stepX) {
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.rotate(-Math.PI / 7);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = '#2b4a6f';
+      ctx.font = WM_FONT;
+      ctx.fillText(text, 0, 0);
+      ctx.globalAlpha = 0.06;
+      ctx.fillStyle = '#b08a3e';
+      ctx.font = '500 10px ' + font;
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '4px';
+      ctx.fillText('送 货 单', 0, 28);
+      if ('letterSpacing' in ctx) ctx.letterSpacing = '2px';
+      ctx.restore();
+    }
+    row++;
+  }
+  ctx.restore();
+}
+// 公司名称水印：平铺宽度按文字长度自适应，避免长公司名被裁切
+function watermarkTileWidth(text) {
+  const c = document.createElement('canvas').getContext('2d');
+  c.font = '700 34px "Microsoft YaHei","SimHei",sans-serif';
+  if ('letterSpacing' in c) c.letterSpacing = '2px';
+  const w = c.measureText(String(text)).width;
+  return Math.max(220, Math.min(900, Math.ceil(w) + 100));
+}
+// 公司名称水印：HTML/打印版（把 SVG 文字做成可平铺的 data URI 背景）
+function watermarkSpriteUrl(text, tileW, nameOpacity) {
+  const esc2 = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const w = Math.max(220, tileW || watermarkTileWidth(text));
+  const h = 170;
+  const cx = w / 2, cy = h / 2;
+  const op = nameOpacity == null ? 0.45 : nameOpacity;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">'
+    + '<g transform="rotate(-25.7 ' + cx + ' ' + cy + ')" font-family="Microsoft YaHei,SimHei,sans-serif" text-anchor="middle">'
+    + '<text x="' + cx + '" y="' + (cy - 6) + '" font-weight="700" font-size="34" letter-spacing="2" fill="#2b4a6f" fill-opacity="' + op + '">' + esc2 + '</text>'
+    + '<text x="' + cx + '" y="' + (cy + 32) + '" font-weight="500" font-size="10" letter-spacing="5" fill="#b08a3e" fill-opacity=".4">送 货 单</text>'
+    + '</g></svg>';
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg).replace(/'/g, '%27');
+}
+
 function drawDocToCanvas(o, s) {
+  Store.assertExportable();
   const padL = 30, padR = 30;
   const measure = document.createElement('canvas').getContext('2d');
-  measure.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-  const numericWidth = (key, money, min) => Math.max(min, ...o.items.map(it =>
-    Math.ceil(measure.measureText(money ? fmtMoney(it[key]) : fmtNum(it[key])).width) + 14));
+  const font = '"SimSun","Microsoft YaHei",sans-serif';
+  measure.font = '12px ' + font;
+  const qtyTotal = fmtNum(sumQuantityText(o.items.map(it => it.qty)));
+  const numericWidth = (key, format, min) => Math.max(min, ...o.items.map(it =>
+    Math.ceil(measure.measureText(format(it[key])).width) + 14));
   // 列宽由完整数值决定；画布覆盖全部列，金额不压缩、不截断。
-  const cols = [30, 196, 40, numericWidth('qty', false, 60), numericWidth('price', true, 100), numericWidth('amount', true, 112), 80];
+  const cols = [30, 196, 40, numericWidth('qty', fmtNum, 60), numericWidth('price', fmtPrice, 100), numericWidth('amount', fmtMoney, 112), 80];
+  cols[3] = Math.max(cols[3], Math.ceil(measure.measureText(qtyTotal).width) + 14);
+  measure.font = 'bold 22px ' + font;
+  cols[5] = Math.max(cols[5], Math.ceil(measure.measureText('¥' + fmtMoney(o.total)).width) + 24 - cols[4] - cols[6]);
   const W = padL + cols.reduce((a, b) => a + b, 0) + padR;
   const innerW = W - padL - padR;
   const scale = 2;
 
   function fmt(v) { return v == null || v === '' ? '' : String(v); }
-  function upper(v) { return amountUpper(v); }
+  function wrap(text, width, textFont) {
+    measure.font = textFont;
+    const lines = [];
+    let line = '';
+    for (const ch of String(text)) {
+      if (ch === '\n') { lines.push(line); line = ''; continue; }
+      if (measure.measureText(line + ch).width > width && line) { lines.push(line); line = ch; }
+      else line += ch;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
 
   /* 先计算总高度 */
-  const rows = o.items.slice();
-  while (rows.length < 8) rows.push(null);
-  const ROW_H = 27;
-  // 预估：抬头(若公司名) + 标题 + NO + 元信息
-  let yTop = 16;
-  if (s.company) yTop += 18 + 16;
-  yTop += 46; // 送货单 标题
-  yTop += 24; // NO
-  yTop += 3 * 24 + 8; // 元信息 3 行
-  const headTop = yTop;
-  const note = o.note || s.note || '以上货物请当面核对，如有质量问题请在收货后3天内通知本公司，逾期恕不负责。';
-  const lines = [];
-  let line = '';
-  for (const ch of '注：' + note) {
-    if (measure.measureText(line + ch).width > innerW - 20 && line) { lines.push(line); line = ch; }
-    else line += ch;
-  }
-  if (line) lines.push(line);
-  const H = yTop + 24 + rows.length * ROW_H + 12 + 22 + 26 + lines.length * 18 + 8 + 44;
+  const rows = o.items;
+  const ROW_H = 24;
+  const sideWidth = (innerW - 116) / 2;
+  const companyLines = s.company ? wrap(s.company, sideWidth, 'bold 22px ' + font) : [];
+  const noLines = wrap('单号：' + o.no, sideWidth, '11px ' + font);
+  const headerHeight = Math.max(28, companyLines.length * 28, noLines.length * 16);
+  const companyDetails = [];
+  const customerDetails = [];
+  const colW = innerW / 2;
+  const meta = [
+    [o.customer && o.customer.name ? '客户名称：' + o.customer.name : '', '送货日期：' + o.date],
+    ...(customerDetails.some(Boolean) ? [customerDetails] : []),
+  ].map(row => {
+    const cells = row.map(text => wrap(text, colW - 10, '12px ' + font));
+    return { cells, height: Math.max(1, ...cells.map(lines => lines.length)) * 18 };
+  });
+  const headTop = 14 + headerHeight + (companyDetails.length ? 2 + companyDetails.length * 17 : 0)
+    + 6 + meta.reduce((sum, row) => sum + row.height, 0) + 6;
+  const upperLines = wrap('金额（大写）：' + amountUpper(o.total), innerW - 16, '13px ' + font);
+  const upperHeight = Math.max(26, upperLines.length * 18 + 8);
+  const H = headTop + 24 + rows.length * ROW_H + 32 + upperHeight + 36;
 
   const canvas = document.createElement('canvas');
   canvas.width = W * scale; canvas.height = H * scale;
@@ -48,60 +126,43 @@ function drawDocToCanvas(o, s) {
   ctx.scale(scale, scale);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
+  if (s.company && s.watermark !== false) paintWatermarkCanvas(ctx, s.company, W, H, font);
   ctx.fillStyle = '#222';
   ctx.textBaseline = 'middle';
 
-  let y = 16;
+  let y = 14;
 
-  // 公司抬头
-  if (s.company) {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 15px "SimSun","Microsoft YaHei",sans-serif';
-    ctx.fillText(s.company, W / 2, y + 10);
-    y += 18;
-    ctx.font = '11px "SimSun","Microsoft YaHei",sans-serif';
-    ctx.fillStyle = '#444';
-    ctx.fillText([s.address, s.phone].filter(Boolean).join('　'), W / 2, y + 6);
-    y += 16;
-    ctx.fillStyle = '#222';
-  }
-
-  // 送货单 标题
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 28px "SimSun","Microsoft YaHei",sans-serif';
-  ctx.fillText('送 货 单', W / 2, y + 24);
-  y += 46;
-
-  // NO
-  ctx.textAlign = 'right';
-  ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-  ctx.fillText('NO：' + o.no, W - padR, y + 12);
-  y += 24;
-
-  // 元信息（2 列 × 3 行）
+  // 公司、标题和单号同排，联系方式紧随其后。
   ctx.textAlign = 'left';
-  ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-  const meta = [
-    ['客户名称：', (o.customer && o.customer.name) || '散客', '客户电话：', (o.customer && o.customer.phone) || ''],
-    ['制单人员：', o.operator || '', '客户地址：', (o.customer && o.customer.address) || ''],
-    ['联 系 人：', (o.customer && o.customer.contact) || '', '送货日期：', o.date],
-  ];
-  const colW = innerW / 2;
-  meta.forEach((row, ri) => {
-    const ry = y + ri * 24 + 12;
-    const drawCell = (label, val, cx) => {
-      ctx.fillStyle = '#666';
-      const lw = ctx.measureText(label).width;
-      ctx.fillText(label, cx, ry);
-      ctx.fillStyle = '#222';
-      ctx.font = 'bold 12px "SimSun","Microsoft YaHei",sans-serif';
-      ctx.fillText(val, cx + lw + 2, ry, colW - lw - 8);
-      ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-    };
-    drawCell(row[0], row[1], padL);
-    drawCell(row[2], row[3], padL + colW);
+  ctx.font = 'bold 22px ' + font;
+  companyLines.forEach((text, i) => ctx.fillText(text, padL, y + (headerHeight - companyLines.length * 28) / 2 + i * 28 + 14));
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 22px ' + font;
+  ctx.fillText('送 货 单', W / 2, y + headerHeight / 2);
+  ctx.textAlign = 'right';
+  ctx.font = '11px ' + font;
+  noLines.forEach((text, i) => ctx.fillText(text, W - padR, y + (headerHeight - noLines.length * 16) / 2 + i * 16 + 8));
+  y += headerHeight;
+  ctx.textAlign = 'left';
+  ctx.font = '12px ' + font;
+  if (companyDetails.length) {
+    y += 2;
+    companyDetails.forEach(text => { ctx.fillText(text, padL, y + 8.5); y += 17; });
+  }
+  y += 6;
+  // 常规信息一行；客户有电话、地址时再显示一行，空信息不占位置。
+  meta.forEach(row => {
+    row.cells.forEach((lines, ci) => {
+      // 送货日期（第二列）右对齐到表格右边缘，与表格对齐
+      const right = ci === 1;
+      ctx.textAlign = right ? 'right' : 'left';
+      const x = right ? padL + (ci + 1) * colW : padL + ci * colW;
+      lines.forEach((text, ri) => ctx.fillText(text, x, y + ri * 18 + 9));
+    });
+    y += row.height;
   });
-  y += 3 * 24 + 8;
+  ctx.textAlign = 'left';
+  y += 6;
 
   // 表头
   const colX = [];
@@ -121,7 +182,7 @@ function drawDocToCanvas(o, s) {
   heads.forEach((h, i) => ctx.fillText(h, colX[i] + cols[i] / 2, y + 12));
   y += 24;
 
-  // 至少 8 行；明细较多时扩展图片高度。
+  // 只绘制实际商品，不补空白行。
   ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
   for (let i = 0; i < rows.length; i++) {
     const it = rows[i];
@@ -135,7 +196,7 @@ function drawDocToCanvas(o, s) {
       ctx.textAlign = 'center';
       ctx.fillText(fmt(it.unit), colX[2] + cols[2] / 2, y + ROW_H / 2, cols[2] - 8);
       ctx.fillText(fmtNum(it.qty), colX[3] + cols[3] / 2, y + ROW_H / 2);
-      ctx.fillText(fmtMoney(it.price), colX[4] + cols[4] / 2, y + ROW_H / 2);
+      ctx.fillText(fmtPrice(it.price), colX[4] + cols[4] / 2, y + ROW_H / 2);
       ctx.fillText(fmtMoney(it.amount), colX[5] + cols[5] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
       ctx.fillText(fmt(it.remark), colX[6] + 4, y + ROW_H / 2, cols[6] - 8);
@@ -151,30 +212,33 @@ function drawDocToCanvas(o, s) {
     ctx.stroke();
   }
 
-  // 合计
-  y += 12;
+  // 参考票据式合计：数量与金额一行，大写金额紧接下一行。
+  ctx.strokeRect(padL, y, innerW, 32);
+  for (const x of [colX[3], colX[4]]) {
+    ctx.beginPath();ctx.moveTo(x, y);ctx.lineTo(x, y + 32);ctx.stroke();
+  }
   ctx.fillStyle = '#222';
-  ctx.textAlign = 'left';
-  ctx.font = '13px "SimSun","Microsoft YaHei",sans-serif';
-  ctx.fillText('金额合计（大写）：' + upper(o.total), padL, y);
-  y += 22;
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 13px ' + font;
+  ctx.fillText('合　计', (padL + colX[3]) / 2, y + 16);
+  ctx.font = '12px ' + font;
+  ctx.fillText(qtyTotal, colX[3] + cols[3] / 2, y + 16);
   ctx.textAlign = 'right';
-  ctx.font = 'bold 13px "SimSun","Microsoft YaHei",sans-serif';
-  ctx.fillText('小写金额 ¥' + fmtMoney(o.total), tableRight, y);
-  y += 26;
-
-  // 备注（自动换行）
-  ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
-  ctx.fillStyle = '#333';
+  ctx.font = 'bold 22px ' + font;
+  ctx.fillText('¥' + fmtMoney(o.total), tableRight - 8, y + 16);
+  y += 32;
+  ctx.strokeRect(padL, y, innerW, upperHeight);
   ctx.textAlign = 'left';
-  lines.forEach((ln, i) => ctx.fillText(ln, padL, y + 6 + i * 18));
-  y += lines.length * 18 + 8;
+  ctx.font = '13px ' + font;
+  upperLines.forEach((text, i) => ctx.fillText(text, padL + 8, y + 13 + i * 18));
+  y += upperHeight;
 
-  // 签章
+  // 制单人与收货签章并列。
   ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
   ctx.fillStyle = '#222';
-  ctx.fillText('送货单位及经手人（盖章）：', padL, y + 20);
-  ctx.fillText('收货单位及经手人（盖章）：', padL + innerW / 2, y + 20);
+  ctx.textAlign = 'left';
+  ctx.fillText('制单人：' + (o.operator || ''), padL, y + 18, innerW / 2 - 10);
+  ctx.fillText('收货签章：', padL + innerW / 2, y + 18);
 
   // 联次说明已按用户要求删除（单张/普通打印不需要）
   return canvas;
@@ -196,30 +260,38 @@ Views.print = {
     const el = document.createElement('div');
     el.className = 'view active';
     el.id = 'print-view';
+    if (Store.recoveryState().blocked) {
+      el.innerHTML = '<div class="empty"><div class="em-t">本地数据异常，打印与导出暂不可用</div><p>请先导出原始数据，再恢复有效备份。</p></div>';
+      return el;
+    }
     if (!o) {
       el.innerHTML = `<div class="empty"><div class="em-t">单据不存在</div><button class="btn btn-primary" data-act="back">返回</button></div>`;
       el.addEventListener('click', async e => { if (e.target.closest('[data-act="back"]')) location.hash = '#/orders'; });
       return el;
     }
     const s = Store.getSettings();
-    const rows = o.items.slice();
-    while (rows.length < 8) rows.push(null); // 模板固定 8 行空位
-    const qtySum = o.items.reduce((a, i) => a + (Number(i.qty) || 0), 0);
+    const wmText = s.company && s.watermark !== false ? String(s.company) : '';
+    const rows = o.items;
+    const companyDetails = [];
+    const customerDetails = [];
+    const qtyTotal = fmtNum(sumQuantityText(rows.map(it => it.qty)));
 
     const docHtml = `
       <div class="doc-wrap">
         <div class="doc" data-role="doc">
-          ${s.company ? `<div style="text-align:center;font-size:15px;font-weight:700;letter-spacing:2px">${esc(s.company)}</div>
-          <div style="text-align:center;font-size:11px;color:#333;margin-bottom:2px">${esc([s.address, s.phone].filter(Boolean).join('　'))}</div>` : ''}
-          <div class="d-title">送 货 单</div>
-          <div class="d-no">NO：${esc(o.no)}</div>
+          ${wmText ? '<div class="doc-watermark" aria-hidden="true"></div>' : ''}
+          <div class="d-company">
+            <div class="d-header">
+              <div class="d-company-slot">${s.company ? `<div class="d-company-name">${esc(s.company)}</div>` : ''}</div>
+              <div class="d-title">送货单</div>
+              <div class="d-no">单号：${esc(o.no)}</div>
+            </div>
+            ${companyDetails.length ? `<div class="d-company-detail">${esc(companyDetails.join('　'))}</div>` : ''}
+          </div>
           <div class="d-meta">
-            <span>客户名称：<b>${esc((o.customer && o.customer.name) || '散客')}</b></span>
-            <span>客户电话：<b>${esc((o.customer && o.customer.phone) || '')}</b></span>
-            <span>制单人员：<b>${esc(o.operator || '')}</b></span>
-            <span>客户地址：<b>${esc((o.customer && o.customer.address) || '')}</b></span>
-            <span>联 系 人：<b>${esc((o.customer && o.customer.contact) || '')}</b></span>
-            <span>送货日期：<b>${esc(o.date)}</b></span>
+            ${o.customer && o.customer.name ? `<span class="d-customer-name">客户名称：<b>${esc(o.customer.name)}</b></span>` : ''}
+            <span class="d-date">送货日期：<b>${esc(o.date)}</b></span>
+            ${customerDetails.some(Boolean) ? customerDetails.map(text => `<span>${esc(text)}</span>`).join('') : ''}
           </div>
           <table>
             <thead><tr>
@@ -228,27 +300,25 @@ Views.print = {
               <th style="width:64px">单价</th><th style="width:74px">金额</th><th style="width:56px">备注</th>
             </tr></thead>
             <tbody>
-              ${rows.map((it, i) => it ? `
+              ${rows.map((it, i) => `
                 <tr>
                   <td>${i + 1}</td>
                   <td>${esc([it.name, it.spec].filter(Boolean).join(' '))}</td>
                   <td>${esc(it.unit || '')}</td>
                   <td class="doc-num">${fmtNum(it.qty)}</td>
-                  <td class="doc-num">${fmtMoney(it.price)}</td>
+                  <td class="doc-num">${fmtPrice(it.price)}</td>
                   <td class="doc-num">${fmtMoney(it.amount)}</td>
                   <td>${esc(it.remark || '')}</td>
-                </tr>` : `
-                <tr><td>${i + 1}</td><td colspan="6"></td></tr>`).join('')}
+                </tr>`).join('')}
             </tbody>
+            <tfoot class="d-total">
+              <tr class="t-summary"><td colspan="3" class="t-label">合　计</td><td class="t-qty">${qtyTotal}</td><td colspan="3" class="t-amount"><b class="t-num">¥${fmtMoney(o.total)}</b></td></tr>
+              <tr><td colspan="7" class="t-cap"><span>金额（大写）：</span><b>${esc(amountUpper(o.total))}</b></td></tr>
+            </tfoot>
           </table>
-          <div class="d-total">
-            <span class="t-cap">金额合计（大写）：${esc(amountUpper(o.total))}</span>
-            <span>小写金额 <span class="t-num">¥${fmtMoney(o.total)}</span></span>
-          </div>
-          <div class="d-note">注：${esc(o.note || s.note || '以上货物请当面核对，如有质量问题请在收货后3天内通知本公司，逾期恕不负责。')}</div>
           <div class="d-sign">
-            <div>送货单位及经手人（盖章）：</div>
-            <div>收货单位及经手人（盖章）：</div>
+            <div>制单人：${esc(o.operator || '')}</div>
+            <div>收货签章：</div>
           </div>
         </div>
       </div>`;
@@ -269,13 +339,21 @@ Views.print = {
       <div class="document-scroll print-document-scroll" role="region" aria-label="送货单打印预览，可左右滑动" tabindex="0">
         <div class="doc-page">${docHtml}</div>
       </div>
-      <div class="hint" style="text-align:center;margin:10px 0 16px">A4 竖版三联送货单 · 打印时选择「另存为 PDF」即可保存电子档</div>`;
+      <div class="hint" style="text-align:center;margin:10px 0 16px">A4 竖版送货单 · 打印时选择「另存为 PDF」即可保存电子档</div>`;
+
+    const wmEl = el.querySelector('.doc-watermark');
+    if (wmEl && wmText) {
+      const wmTile = watermarkTileWidth(wmText);
+      wmEl.style.backgroundImage = 'url("' + watermarkSpriteUrl(wmText, wmTile) + '")';
+      wmEl.style.backgroundSize = wmTile + 'px 170px';
+    }
 
     el.addEventListener('click', async e => {
       const act = e.target.closest('[data-act]');
       if (!act) return;
       const a = act.dataset.act;
       if (a === 'back') { history.length > 1 ? history.back() : (location.hash = '#/order/view?id=' + o.id); return; }
+      if (!ensureExportable()) return;
       if (a === 'print') {
         if (window.Android && window.Android.printPdf) { window.Android.printPdf('送货单_' + o.no); }
         else window.print();

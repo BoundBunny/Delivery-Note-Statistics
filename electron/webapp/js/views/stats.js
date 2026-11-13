@@ -4,6 +4,27 @@
 'use strict';
 window.Views = window.Views || {};
 
+// Sales overview and detailed daily sales chart, both with a zero baseline.
+function salesTrendChart(rows, { compact = false } = {}) {
+  const max = Math.max(0, ...rows.map(row => row.total));
+  const power = Math.pow(10, Math.floor(Math.log10(max || 1)));
+  const ceiling = ([1, 2, 5, 10].find(step => step * power >= max) || 10) * power;
+  const tick = value => value >= 1e12 ? fmtNum(value / 1e12) + '万亿'
+    : value >= 1e8 ? fmtNum(value / 1e8) + '亿'
+    : value >= 1e4 ? fmtNum(value / 1e4) + '万' : fmtNum(value);
+  const slot = compact ? 24 : Math.max(96, ...rows.map(row => fmtMoney(row.total).length * 7 + 16));
+  const label = rows.map(row => row.day + '，销售额 ' + fmtMoney(row.total) + ' 元').join('；');
+  return `<div class="sales-chart${compact ? ' sales-chart-compact' : rows.length === 1 ? ' sales-chart-single' : ''}" role="img" aria-label="${esc(label)}">
+    <div class="sales-axis" aria-hidden="true"><span class="sales-unit">元</span><span class="sales-tick sales-tick-top">${tick(ceiling)}</span><span class="sales-tick sales-tick-mid">${tick(ceiling / 2)}</span><span class="sales-tick sales-tick-zero">0</span></div>
+    <div class="sales-plot-window"><div class="bar-trend" style="--trend-count:${rows.length};--trend-slot:${slot}px">
+      ${rows.map(row => `<div class="bt-col" title="${esc(row.day)} · 销售额 ¥${fmtMoney(row.total)}${row.count == null ? '' : ' · ' + row.count + ' 张单据'}">
+        <div class="bt-plot"><div class="bt-bar${row.total > 0 ? ' bt-bar--nonzero' : ''}" style="height:${row.total / ceiling * 100}%"></div>${compact ? '' : `<span class="bt-value" style="bottom:calc(${row.total / ceiling * 100}% + 4px)">${fmtMoney(row.total)}</span>`}</div>
+        <div class="bt-x">${row.day.slice(5).replace('-', '/')}</div>
+      </div>`).join('')}
+    </div></div>
+  </div>`;
+}
+
 /* 月度账单辅助 */
 function billTitleFor(customerName, ym, settings) {
   const s = settings || Store.getSettings();
@@ -23,6 +44,7 @@ function billRowsOf(group) {
   return rows;
 }
 async function exportBillXlsx(ym, key, name) {
+  if (!ensureExportable()) return;
   const g = Store.billGroups(ym).find(x => String(x.key) === String(key));
   if (!g) { toast('未找到账单', true); return; }
   const rows = billRowsOf(g);
@@ -31,6 +53,7 @@ async function exportBillXlsx(ym, key, name) {
   if ((await downloadBlob('账单_' + name + '_' + ym + '.xlsx', xlsxBlob(bytes))).ok) toast('已导出 ' + name);
 }
 async function exportAllBills(ym) {
+  if (!ensureExportable()) return;
   const groups = Store.billGroups(ym);
   if (!groups.length) { toast('该月暂无账单', true); return; }
   const sheets = groups.map(g => {
@@ -63,16 +86,19 @@ Views.stats = {
 
     const el = document.createElement('div');
     el.className = 'view active';
+    let chartObserver = null;
 
     const compute = () => {
       const list = Store.listOrders({ from: st.from || undefined, to: st.to || undefined });
       const orders = list.length;
-      const qtySum = list.reduce((a, o) => a + o.items.reduce((x, i) => x + (Number(i.qty) || 0), 0), 0);
+      const qtySum = sumQuantities(list.flatMap(o => o.items.map(i => i.qty)));
       const total = Math.round(list.reduce((a, o) => a + (o.total || 0), 0) * 100) / 100;
       const custSet = new Set(list.filter(o => o.customer && o.customer.id).map(o => o.customer.id));
       // 按日趋势
       const dayMap = Object.create(null);
-      list.forEach(o => { dayMap[o.date] = (dayMap[o.date] || 0) + (o.total || 0); });
+      const dayCounts = Object.create(null), dayCents = Object.create(null);
+      list.forEach(o => { dayCents[o.date] = (dayCents[o.date] || 0) + Math.round((o.total || 0) * 100); dayCounts[o.date] = (dayCounts[o.date] || 0) + 1; });
+      Object.keys(dayCents).forEach(day => { dayMap[day] = dayCents[day] / 100; });
       // 客户排行
       const custMap = Object.create(null);
       list.forEach(o => {
@@ -109,33 +135,27 @@ Views.stats = {
           };
         }
         row.total += i.amount || 0;
-        row.qty += Number(i.qty) || 0;
+        row.qty = sumQuantities([row.qty, i.qty]);
         row.count += 1;
       }));
       const custRank = Object.values(custMap).map(row=>[row.name,row.total]).sort((a, b) => b[1] - a[1]).slice(0, 8);
       const prodAll = Object.values(prodMap).sort((a, b) => b.total - a.total || b.qty - a.qty);
-      // 趋势日期轴（日范围内去重升序，最多取30个点）
-      let days = Object.keys(dayMap).sort();
-      if (days.length > 30) days = days.slice(days.length - 30);
-      return { orders, qtySum, total, customers: custSet.size, dayMap, days, custRank, prodAll };
+      const salesDays = Object.keys(dayMap).sort();
+      return { orders, qtySum, total, customers: custSet.size, dayMap, dayCounts, salesDays, custRank, prodAll };
     };
 
     const render = () => {
       if(!validDateRange(st.from,st.to)){
+        chartObserver?.disconnect();
         for(const key of ['trend','custRank','prodRank'])$('[data-role="'+key+'"]',el).textContent='日期范围无效，请修正后查询';
         for(const key of ['c1','c2','c3','c4'])$('[data-role="'+key+'"]',el).textContent='—';
         $('[data-role="range"]',el).textContent='日期范围无效';return;
       }
       const d = compute();
-      const maxDay = Math.max(1, ...d.days.map(x => d.dayMap[x]));
-      const trendHtml = d.days.length
-        ? `<div class="bar-trend" style="--trend-count:${d.days.length}" role="img" aria-label="按日期汇总的销售额，可横向滚动查看全部日期">${d.days.map(day => `
-            <div class="bt-col" title="${day} ¥${fmtMoney(d.dayMap[day])}">
-              <div class="bt-plot"><div class="bt-bar" style="height:${Math.max(2, Math.round(d.dayMap[day] / maxDay * 100))}%"></div></div>
-              <div class="bt-x">${shortDate(day)}</div>
-            </div>`).join('')}</div>
-           <div class="tip">最近 ${d.days.length} 个销售日 · 悬停查看日期与金额，日期较多时可横向滚动</div>`
-        : `<div class="empty" style="padding:26px 0"><div class="em-s">该时间段暂无销售数据</div></div>`;
+      const trendHtml = d.salesDays.length
+        ? salesTrendChart(d.salesDays.map(day => ({ day, total: d.dayMap[day], count: d.dayCounts[day] })))
+          + `<div class="trend-totals"><span>区间合计 <b>¥${fmtMoney(d.total)}</b></span><span>共 ${fmtNum(d.orders)} 张单据</span></div>`
+        : '<div class="trend-empty">该时间段没有送货单，暂无销售趋势。</div>';
 
       const rankHtml = (rank, cls) => {
         if (!rank.length) return `<div class="empty" style="padding:22px 0"><div class="em-s">暂无数据</div></div>`;
@@ -180,7 +200,34 @@ Views.stats = {
         return `<div class="prodrk">${listHtml}${more}</div>`;
       };
 
+      const oldPlot = $('[data-role="trend"] .sales-plot-window', el);
+      const oldScroll = oldPlot?.scrollLeft || 0;
+      const oldDates = oldPlot?.querySelector('.bar-trend')?.dataset.dates || '';
+      const oldAtEnd = !oldPlot || oldPlot.scrollWidth - oldPlot.clientWidth - oldScroll < 2;
+      chartObserver?.disconnect();
       $('[data-role="trend"]', el).innerHTML = trendHtml;
+      const plot = $('[data-role="trend"] .sales-plot-window', el);
+      if (plot) {
+        const dates = d.salesDays.join('|');
+        plot.querySelector('.bar-trend').dataset.dates = dates;
+        let followLatest = dates !== oldDates || oldAtEnd;
+        let lastWidth = 0;
+        const observer = new ResizeObserver(() => {
+          if (!plot.isConnected) return;
+          lastWidth = plot.clientWidth;
+          if (followLatest) plot.scrollLeft = plot.scrollWidth;
+        });
+        chartObserver = observer;
+        plot.addEventListener('scroll', () => {
+          if (plot.clientWidth === lastWidth) followLatest = plot.scrollWidth - plot.clientWidth - plot.scrollLeft < 2;
+        }, { passive: true });
+        requestAnimationFrame(() => {
+          if (!plot.isConnected) return;
+          plot.scrollLeft = followLatest ? plot.scrollWidth : oldScroll;
+          lastWidth = plot.clientWidth;
+          observer.observe(plot);
+        });
+      }
       $('[data-role="custRank"]', el).innerHTML = rankHtml(d.custRank, '');
       $('[data-role="prodRank"]', el).innerHTML = prodRankHtml(d.prodAll);
       $('[data-role="c1"]', el).textContent = d.orders;
@@ -211,7 +258,7 @@ Views.stats = {
       <div class="seg">
         ${Object.keys(ranges).map(r => `<button data-range="${r}" class="${st.range === r ? 'on' : ''}">${ranges[r][0]}</button>`).join('')}
       </div>
-      <div class="hidden" data-role="custom" style="display:flex;gap:8px;margin:0 16px 10px;align-items:center">
+      <div class="${st.range === 'custom' ? '' : 'hidden'}" data-role="custom" style="display:flex;gap:8px;margin:0 16px 10px;align-items:center">
         <input type="date" data-role="from" value="${esc(st.from)}">
         <span style="color:var(--muted)">至</span>
         <input type="date" data-role="to" value="${esc(st.to)}">
@@ -270,6 +317,7 @@ Views.stats = {
       if (e.target.closest('[data-act="bill-all"]')) { exportAllBills(st.billYm || todayStr().slice(0, 7)); return; }
       if (e.target.closest('[data-act="prod-more"]')) { st.prodShowAll = !st.prodShowAll; render(); return; }
       if (e.target.closest('[data-act="export"]')) {
+        if (!ensureExportable()) return;
         if(!validDateRange(st.from,st.to))return;
         const csv = Store.ordersCSV({ from: st.from || undefined, to: st.to || undefined });
         if ((await downloadBlob('销售统计_' + (st.from || '全部') + '.csv', new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))).ok) toast('已导出 CSV');
@@ -281,6 +329,7 @@ Views.stats = {
       if (e.target.matches('[data-role="billYm"]')) { st.billYm = e.target.value; render(); }
     });
 
+    el.dispose = () => chartObserver?.disconnect();
     return el;
   }
 };

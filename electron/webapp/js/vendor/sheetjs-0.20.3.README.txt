@@ -1,0 +1,7 @@
+SheetJS Community Edition 0.20.3, Apache-2.0.
+Official standalone build, bundled locally for offline XLSX/XLS import.
+Source: https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js
+Official documentation: https://docs.sheetjs.com/docs/getting-started/installation/standalone/
+License: sheetjs-0.20.3.LICENSE.txt
+SHA-256: CC015130AA8521E7F088F88898EBA949CCDCBFB38DF0BD129B44B7273C3A6F41
+Loaded only in a disposable import worker, never from the network at runtime.

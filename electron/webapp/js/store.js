@@ -100,7 +100,8 @@ const Store = (() => {
       contact: '',
       noPrefix: 'SD',
       operator: '',
-      note: '以上货物请当面核对，清楚无误后签字，如有质量问题，请在收货3天内通知本公司，感谢您的支持与配合！',
+      note: '',
+      watermark: true,
       billTitle: '{year}年{customer}与{company}{month}月账单',
       // 商品图片存储目录；留空表示使用默认目录（应用所在目录下的 CommercesData）
       imageDir: '',
@@ -226,6 +227,46 @@ const Store = (() => {
     const norm = v => String(v == null ? '' : v).normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
     return norm(name) + '\u0000' + norm(spec);
   }
+  function seedIdentity(s) {
+    const barcode = String(s.barcode || '').trim();
+    return barcode ? 'barcode:' + barcode : 'name:' + seedKey(s.name, s.spec);
+  }
+  function seedProduct(s) {
+    const product = {
+      barcode: String(s.barcode || '').trim(), name: String(s.name || '').trim(),
+      unit: String(s.unit || '').trim(), spec: String(s.spec || '').trim(), category: String(s.category || '').trim(),
+      price: s.price != null && s.price !== '' && Number.isFinite(Number(s.price)) ? Number(s.price) : undefined,
+      cost: s.cost != null && s.cost !== '' && Number.isFinite(Number(s.cost)) ? Number(s.cost) : undefined,
+      remark: String(s.remark || '').trim(),
+    };
+    const image = bundledImageFor(product.name);
+    if (image) product.image = image;
+    return product;
+  }
+  function seedCatalog() {
+    const catalog = new Map(), barcodes = new Set(), identities = new Set();
+    (Array.isArray(window.SEED_PRODUCTS) ? window.SEED_PRODUCTS : []).forEach(s => {
+      if (!s || !s.name) return;
+      const product = seedProduct(s), identity = seedKey(product.name, product.spec);
+      if ((product.barcode && barcodes.has(product.barcode)) || identities.has(identity)) return;
+      catalog.set(seedIdentity(s), product);
+      if (product.barcode) barcodes.add(product.barcode);
+      identities.add(identity);
+    });
+    return catalog;
+  }
+  function builtinKeyFor(product, catalog) {
+    if (product.origin === 'custom') return '';
+    if (product.builtinKey && catalog.has(product.builtinKey)) return product.builtinKey;
+    // Legacy records have no provenance. Match a barcode, or an exact identity
+    // with compatible barcodes; never discard a distinct custom barcode.
+    for (const [key, seed] of catalog) {
+      if (product.barcode && seed.barcode && product.barcode === seed.barcode) return key;
+      if ((!product.barcode || !seed.barcode) && seedKey(product.name, product.spec) === seedKey(seed.name, seed.spec)
+          && (product.unit || '') === seed.unit) return key;
+    }
+    return '';
+  }
   function seedInitialProducts() {
     try {
       const seeds = Array.isArray(window.SEED_PRODUCTS) ? window.SEED_PRODUCTS : [];
@@ -264,7 +305,7 @@ const Store = (() => {
           if (item.barcode && seenBarcode.has(item.barcode)) return;
           const key = seedKey(item.name, item.spec);
           if (seenKey.has(key)) return;
-          d.products.push({ id: uid(), createdAt: now - i, ...item });
+          d.products.push({ id: uid(), createdAt: now - i, ...item, builtinKey: seedIdentity(s) });
           if (item.barcode) seenBarcode.add(item.barcode);
           seenKey.add(key);
           added++;
@@ -559,11 +600,14 @@ const Store = (() => {
       if (data[key] != null && (typeof data[key] !== 'number' || !Number.isFinite(data[key]) || data[key] < 0 || !Number.isSafeInteger(Math.round(data[key] * 100)))) throw new Error('商品单价和成本价须为有效的非负金额');
     });
     if (data.id && getProduct(data.id)) {
-      Object.assign(getProduct(data.id), data);
+      const current = getProduct(data.id);
+      const builtinKey = builtinKeyFor(current, seedCatalog());
+      Object.assign(current, data);
+      if (builtinKey) current.builtinKey = builtinKey;
       persist();
       return getProduct(data.id);
     }
-    const p = { id: uid(), createdAt: Date.now(), ...data };
+    const p = { id: uid(), createdAt: Date.now(), ...data, origin: 'custom' };
     if (p && !p.image && p.name) {
       const img = bundledImageFor(p.name);
       if (img) p.image = img;
@@ -699,16 +743,35 @@ const Store = (() => {
   }
 
   /* ---------- 备份 / 恢复 ---------- */
+  function assertExportable() {
+    if (recoveryBlocked) throw new Error('本地数据异常，不能导出或打印不完整报表。请先导出原始数据，再恢复有效备份。');
+  }
+  const PRODUCT_BACKUP_FIELDS = ['name', 'barcode', 'spec', 'unit', 'category', 'price', 'cost', 'remark', 'image', 'code', 'archived', 'archivedAt'];
   function exportJSON() {
     if (recoveryBlocked) throw new Error('当前数据处于只读保护，请使用“导出原始数据”保留损坏前的记录');
+    const catalog = seedCatalog(), products = [], entries = [];
+    d.products.forEach(product => {
+      const key = builtinKeyFor(product, catalog);
+      if (!key) { products.push(product); return; }
+      const baseline = catalog.get(key), changes = {}, unset = [];
+      PRODUCT_BACKUP_FIELDS.forEach(field => {
+        if (product[field] === undefined) { if (baseline[field] !== undefined) unset.push(field); }
+        else if (product[field] !== baseline[field]) changes[field] = product[field];
+      });
+      // Definitions stay in the installed catalog. IDs keep historical orders
+      // and customer-specific prices linked when restoring on another PC.
+      entries.push({ key, id: product.id, createdAt: product.createdAt, changes, unset });
+    });
     return JSON.stringify({
       app: 'songhuodan',
-      version: 1,
+      version: 2,
+      kind: 'portable',
       exportedAt: new Date().toISOString(),
+      catalog: { entries },
       data: {
-        settings: d.settings,
+        settings: { ...d.settings, imageDir: '' },
         customers: d.customers,
-        products: d.products,
+        products,
         orders: d.orders,
         lastPrices: d.lastPrices,
         seqMap: d.seqMap,
@@ -718,21 +781,70 @@ const Store = (() => {
   function importJSON(text) {
     let obj;
     try { obj = JSON.parse(text); } catch (e) { throw new Error('备份文件内容不是有效的 JSON，已取消恢复。'); }
-    if (!obj || obj.app !== 'songhuodan' || !obj.data) throw new Error('不是有效的送货宝备份文件');
-    if (obj.version != null && obj.version !== 1) throw new Error('不支持此备份版本，请使用对应版本的应用恢复');
-    const src = obj.data;
+    if (!obj || obj.app !== 'songhuodan' || !obj.data || typeof obj.data !== 'object' || Array.isArray(obj.data)) throw new Error('不是有效的送货宝备份文件');
+    if (obj.version != null && obj.version !== 1 && obj.version !== 2) throw new Error('不支持此备份版本，请使用对应版本的应用恢复');
+    let src = obj.data;
+    const owns = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+    if (obj.version === 2) {
+      if (obj.kind !== 'portable' || !Object.keys(K).every(key => owns(src, key) && src[key] != null)
+          || !obj.catalog || !Array.isArray(obj.catalog.entries)) throw new Error('换机备份数据不完整，已取消恢复');
+      validateSnapshot(src);
+      const catalog = seedCatalog();
+      const builtins = obj.catalog.entries.map(entry => {
+        if (!entry || typeof entry !== 'object' || typeof entry.key !== 'string' || typeof entry.id !== 'string'
+            || !entry.id || !entry.changes || typeof entry.changes !== 'object' || Array.isArray(entry.changes)
+            || !Array.isArray(entry.unset) || !Object.keys(entry.changes).every(key => PRODUCT_BACKUP_FIELDS.includes(key))
+            || !entry.unset.every(key => PRODUCT_BACKUP_FIELDS.includes(key))) throw new Error('初始化商品关联数据不正确，已取消恢复');
+        if (!catalog.has(entry.key)) throw new Error('本机初始化商品目录与备份不兼容，请使用相同或兼容版本恢复');
+        const product = { ...catalog.get(entry.key), ...entry.changes, id: entry.id, builtinKey: entry.key };
+        if (entry.createdAt != null) product.createdAt = entry.createdAt;
+        entry.unset.forEach(key => { delete product[key]; });
+        return product;
+      });
+      src = { ...src, settings: { ...src.settings, imageDir: '' }, products: [...src.products, ...builtins] };
+    } else {
+      if (obj.kind != null && obj.kind !== 'storage') throw new Error('不能识别此备份类型，已取消恢复');
+      const hasRawKeys = Object.values(K).some(key => owns(src, key));
+      const hasDataKeys = Object.keys(K).some(key => owns(src, key));
+      if (hasRawKeys && hasDataKeys) throw new Error('备份数据结构混杂，已取消恢复');
+      if (hasRawKeys) {
+        const decoded = {};
+        Object.keys(K).forEach(key => {
+          if (!owns(src, K[key])) return;
+          if (typeof src[K[key]] !== 'string') throw new Error('自动备份中的数据格式不正确，已取消恢复');
+          try { decoded[key] = JSON.parse(src[K[key]]); }
+          catch (_) { throw new Error('自动备份中的数据已损坏，已取消恢复'); }
+        });
+        src = decoded;
+      } else if (!hasDataKeys) throw new Error('备份中没有可识别的业务数据，已取消恢复');
+    }
+    if (!['customers', 'products', 'orders'].every(key => owns(src, key) && Array.isArray(src[key]))) {
+      throw new Error('备份缺少完整的客户、商品或单据数据，已取消恢复');
+    }
+    if (Object.keys(K).some(key => owns(src, key) && src[key] == null)) throw new Error('备份中的业务数据为空值，已取消恢复');
+    if (src.products.some(product => typeof product?.image === 'string' && product.image.startsWith('backup:'))) {
+      throw new Error('备份包含图片文件，请通过设置选择完整 ZIP 备份包，或同时保留 JSON 旁的 images 文件夹');
+    }
     validateSnapshot(src);
     // 完整覆盖：备份里缺的字段回落到默认值，而不是保留当前旧数据。
     const blocked = recoveryBlocked;
+    const flags = [SEED_FLAG, SEED_CAT_FLAG, SEED_PRICE_FLAG, DEDUPE_FLAG, BUNDLED_IMG_FLAG, RECAT_FLAG];
+    const previousFlags = flags.map(flag => [flag, LS.getItem(flag)]);
     recoveryBlocked = false;
     try {
+      // Write flags before the business commit, so a flag failure cannot leave
+      // a successful data replacement reported as a failed restore.
+      flags.forEach(flag => { if (LS.getItem(flag) !== '1') LS.setItem(flag, '1'); });
       Object.keys(K).forEach(k => { d[k] = src[k] != null ? src[k] : JSON.parse(JSON.stringify(DEFAULTS[k])); });
       d.settings = Object.assign(JSON.parse(JSON.stringify(DEFAULTS.settings)), d.settings);
       persist();
-      // 恢复备份即视为“已初始化”：备份里有什么就是什么（哪怕商品为空），
-      // 避免下次启动又把内置商品灌回来，覆盖老板刻意恢复的空数据。
-      if (LS.getItem(SEED_FLAG) !== '1') LS.setItem(SEED_FLAG, '1');
-    } catch (error) { recoveryBlocked = blocked; throw error; }
+    } catch (error) {
+      restoreCommitted();
+      previousFlags.forEach(([flag, value]) => {
+        try { if (value == null) LS.removeItem(flag); else LS.setItem(flag, value); } catch (_) { /* retain the original storage error */ }
+      });
+      recoveryBlocked = blocked; throw error;
+    }
     recoveryRaw = null;damagedKeys.length = 0;
   }
   function validateSnapshot(src) {
@@ -755,14 +867,15 @@ const Store = (() => {
         if (!isObj(record) || typeof record.id !== 'string' || !record.id || ids.has(record.id)
             || typeof record.name !== 'string' || !record.name.trim()) fail(label);
         ids.add(record.id);
-        textFields(record, ['phone', 'address', 'contact', 'code', 'barcode', 'spec', 'unit', 'remark', 'image', 'category'], label);
+        textFields(record, ['phone', 'address', 'contact', 'code', 'barcode', 'spec', 'unit', 'remark', 'image', 'category', 'builtinKey', 'origin'], label);
+        if (record.archived != null && typeof record.archived !== 'boolean') fail(label);
         ['price', 'cost', 'createdAt'].forEach(key => {
           if (record[key] != null && !Number.isFinite(record[key])) fail(label);
         });
         ['price','cost'].forEach(key => { if (record[key] != null && (record[key] < 0 || !Number.isSafeInteger(Math.round(record[key]*100)))) fail(label); });
       });
     };
-    textFields(src.settings || {}, Object.keys(DEFAULTS.settings), '设置数据');
+    textFields(src.settings || {}, Object.keys(DEFAULTS.settings).filter(k => typeof DEFAULTS.settings[k] === 'string'), '设置数据');
     namedRecords(src.customers, '客户记录');
     namedRecords(src.products, '商品记录');
     const orderIds = new Set(),orderNos=new Set();
@@ -794,13 +907,20 @@ const Store = (() => {
 
   /* ---------- CSV 导出 ---------- */
   function csvEscape(v) {
-    const s = String(v == null ? '' : v);
-    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    let s = String(v == null ? '' : v);
+    // Text cells must not become spreadsheet formulas; numeric cells stay numeric.
+    if (typeof v !== 'number' && (/^[\s\uFEFF]*[=+\-@]/.test(s) || /^[\t\r\n]/.test(s))) s = "'" + s;
+    return /[",\r\n]/.test(s) || /^\s|\s$/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   function toCSV(rows) {
     return rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
   }
+  function tableCSV(headers, rows) {
+    assertExportable();
+    return toCSV([headers, ...rows]);
+  }
   function ordersCSV(filter) {
+    assertExportable();
     const rows = [['单号', '日期', '客户名称', '客户电话', '联系人', '产品名称', '规格', '单位', '数量', '单价', '金额', '备注', '制单人']];
     // 日期在 CSV 中写成「2026年11月12日」这种中文日期文本，Excel 打开即按此显示
     const cnDate = s => {
@@ -826,6 +946,7 @@ const Store = (() => {
   }
   // 送货单 Excel 导出数据：返回 { headers, rows, widths, footer, footerMerge }，由页面交给 Xlsx.build
   function ordersSheet(filter) {
+    assertExportable();
     const cnDate = s => {
       const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(String(s || ''));
       if (!m) return s || '';
@@ -850,11 +971,13 @@ const Store = (() => {
     return { headers, rows, widths, footer, footerMerge };
   }
   function customersCSV() {
+    assertExportable();
     const rows = [['编号', '客户名称', '电话', '地址', '联系人', '备注']];
     listCustomers().forEach((c, i) => rows.push([i + 1, c.name, c.phone || '', c.address || '', c.contact || '', c.remark || '']));
     return toCSV(rows);
   }
   function productsCSV() {
+    assertExportable();
     const rows = [['编号', '条码', '产品名称', '型号规格', '单位', '零售价', '成本价', '产品备注']];
     listProducts('', { includeArchived: true }).forEach((p, i) => rows.push([p.code || (i + 1), p.barcode || '', p.name, p.spec || '', p.unit || '', p.price == null ? '' : p.price, p.cost == null ? '' : p.cost, (p.archived ? '已下架' : '') + (p.remark || '')]));
     return toCSV(rows);
@@ -902,9 +1025,17 @@ const Store = (() => {
     return rows;
   }
   function importProductsCSV(text) {
-    const rows = parseCSV(text);
+    return importProductsRows(parseCSV(text));
+  }
+  function validateImportRows(rows) {
+    if (!Array.isArray(rows) || !rows.every(row => Array.isArray(row) && row.length <= 128 && row.every(cell => cell == null || typeof cell === 'string' || typeof cell === 'number' && Number.isFinite(cell)))) throw new Error('资料表格数据格式不正确');
+    if (rows.length > 100001) throw new Error('导入记录过多，请拆分文件');
+    if (rows.length && rows.some(row => row.length > rows[0].length)) throw new Error('资料列数不一致，请检查原文件');
+  }
+  function importProductsRows(rows) {
+    validateImportRows(rows);
     if (rows.length < 2) throw new Error('没有可导入的商品数据');
-    const header = rows[0].map(h => h.trim());
+    const header = rows[0].map(h => String(h == null ? '' : h).trim());
     const idx = {
       code: header.findIndex(h => /编号|编码/.test(h)),
       barcode: header.findIndex(h => /条码/.test(h)),
@@ -914,15 +1045,23 @@ const Store = (() => {
       price: header.findIndex(h => /零售价|价格|售价|单价/.test(h)),
       cost: header.findIndex(h => /成本/.test(h)),
       remark: header.findIndex(h => /备注/.test(h)),
+      archived: header.findIndex(h => /状态|上下架/.test(h)),
+      category: header.findIndex(h => /分类|类别/.test(h)),
     };
-    if (idx.name < 0) throw new Error('未识别到“产品名称”表头，请选择正确的商品 CSV 文件。');
+    if (idx.name < 0) throw new Error('未识别到“产品名称”表头，请选择正确的商品资料文件');
     function parseMoney(v) {
       if (v == null) return undefined;
       const s = String(v).trim();
       if (s === '') return undefined;
       const n = Number(s);
-      if (!Number.isFinite(n) || n < 0 || !Number.isSafeInteger(Math.round(n * 100))) throw new Error('CSV 中存在无效单价或成本价，已取消整批导入');
+      if (!Number.isFinite(n) || n < 0 || !Number.isSafeInteger(Math.round(n * 100))) throw new Error('文件中存在无效单价或成本价，已取消整批导入');
       return n;
+    }
+    function parseArchived(value) {
+      const text = String(value == null ? '' : value).trim().toLowerCase();
+      if (!text || /^(在售|上架|启用|active|0|false)$/.test(text)) return false;
+      if (/^(已下架|下架|停用|archived|inactive|1|true)$/.test(text)) return true;
+      throw new Error('文件中的商品状态无效，已取消整批导入');
     }
     let skipped = 0;
     const pending = [];
@@ -930,35 +1069,40 @@ const Store = (() => {
     const existsBarcode = new Set(d.products.filter(p => p.barcode).map(p => String(p.barcode).trim()));
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      const name = String(r[idx.name] || '').trim();
+      const name = String(r[idx.name] ?? '').trim();
       if (!name) continue;
       const spec = String(idx.spec >= 0 ? r[idx.spec] || '' : '').trim();
-      const barcode = String(idx.barcode >= 0 ? r[idx.barcode] || '' : '').trim();
+      const barcode = String(idx.barcode >= 0 ? r[idx.barcode] ?? '' : '').trim();
       const key = seedKey(name, spec);
       if (existsKey.has(key) || (barcode && existsBarcode.has(barcode))) { skipped++; continue; }
       pending.push({
         name,
-        code: String(idx.code >= 0 ? r[idx.code] || '' : '').trim(),
+        code: String(idx.code >= 0 ? r[idx.code] ?? '' : '').trim(),
         barcode,
         spec,
         unit: String(idx.unit >= 0 ? r[idx.unit] || '' : '').trim(),
         price: idx.price >= 0 ? parseMoney(r[idx.price]) : undefined,
         cost: idx.cost >= 0 ? parseMoney(r[idx.cost]) : undefined,
         remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
+        ...(idx.archived >= 0 ? { archived: parseArchived(r[idx.archived]) } : {}),
+        ...(idx.category >= 0 ? { category: String(r[idx.category] ?? '').trim() } : {}),
       });
       existsKey.add(key);
       if (barcode) existsBarcode.add(barcode);
     }
     if (pending.length) {
-      d.products = pending.map(product => ({ id: uid(), createdAt: Date.now(), ...product })).concat(d.products);
+      d.products = pending.map(product => ({ id: uid(), createdAt: Date.now(), ...product, origin: 'custom' })).concat(d.products);
       persist();
     }
     return { added: pending.length, skipped };
   }
   function importCustomersCSV(text) {
-    const rows = parseCSV(text);
+    return importCustomersRows(parseCSV(text));
+  }
+  function importCustomersRows(rows) {
+    validateImportRows(rows);
     if (rows.length < 2) throw new Error('没有可导入的客户数据');
-    const header = rows[0].map(h => h.trim());
+    const header = rows[0].map(h => String(h == null ? '' : h).trim());
     const idx = {
       name: header.findIndex(h => /^(?:客户名称|客户名|名称|姓名|customer(?:name)?|name)$/i.test(h.replace(/\s/g, ''))),
       phone: header.findIndex(h => /电话|手机|联系电话/.test(h)),
@@ -966,19 +1110,19 @@ const Store = (() => {
       contact: header.findIndex(h => /联系人/.test(h)),
       remark: header.findIndex(h => /备注/.test(h)),
     };
-    if (idx.name < 0) throw new Error('未识别到“客户名称”表头，请选择正确的客户 CSV 文件，Excel 文件需先另存为 CSV。');
+    if (idx.name < 0) throw new Error('未识别到“客户名称”表头，请选择正确的客户资料文件');
     let skipped = 0;
     const pending = [];
     const nameKey = name => String(name || '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
     const existsName = new Set(d.customers.map(c => nameKey(c.name)));
     for (let i = 1; i < rows.length; i++) {
       const r = rows[i];
-      const name = String(r[idx.name] || '').trim();
+      const name = String(r[idx.name] ?? '').trim();
       if (!name) continue;
       if (existsName.has(nameKey(name))) { skipped++; continue; }
       pending.push({
         name,
-        phone: String(idx.phone >= 0 ? r[idx.phone] || '' : '').trim(),
+        phone: String(idx.phone >= 0 ? r[idx.phone] ?? '' : '').trim(),
         address: String(idx.address >= 0 ? r[idx.address] || '' : '').trim(),
         contact: String(idx.contact >= 0 ? r[idx.contact] || '' : '').trim(),
         remark: String(idx.remark >= 0 ? r[idx.remark] || '' : '').trim(),
@@ -990,6 +1134,20 @@ const Store = (() => {
       persist();
     }
     return { added: pending.length, skipped };
+  }
+
+  function importTables(kind, sheets) {
+    if (!['products', 'customers'].includes(kind) || !Array.isArray(sheets) || !sheets.length || sheets.length > 1000) throw new Error('没有可导入的资料表格');
+    return transaction(() => {
+      const total = { added: 0, skipped: 0 };
+      for (const sheet of sheets) {
+        try {
+          const result = kind === 'products' ? importProductsRows(sheet.rows) : importCustomersRows(sheet.rows);
+          total.added += result.added; total.skipped += result.skipped;
+        } catch (error) { throw new Error((sheet.name ? '工作表“' + sheet.name + '”：' : '') + error.message); }
+      }
+      return total;
+    });
   }
 
   /* ---------- 月度账单（按客户分组） ---------- */
@@ -1015,10 +1173,11 @@ const Store = (() => {
 
   /* 单据明细表（供 Excel 导出） */
   function ordersTable(from, to) {
+    assertExportable();
     return listOrders({ from, to }).map(o => ({
       date: o.date, no: o.no,
       customer: o.customer ? o.customer.name : '散客',
-      qty: o.items.reduce((a, i) => a + (Number(i.qty) || 0), 0),
+      qty: sumQuantities(o.items.map(i => i.qty)),
       total: o.total || 0,
       note: o.note || '',
     }));
@@ -1046,10 +1205,10 @@ const Store = (() => {
     listOrders, getOrder, addOrder, updateOrder, deleteOrder, orderIndex, siblingOrder,
     nextOrderNo, reclaimNo,
     getLastPrice, setLastPrice,
-    exportJSON, importJSON,
-    ordersCSV, ordersSheet, customersCSV, productsCSV,
+    exportJSON, importJSON, assertExportable,
+    ordersCSV, ordersSheet, customersCSV, productsCSV, tableCSV,
     billGroups, ordersTable,
-    importProductsCSV, importCustomersCSV,
+    importProductsCSV, importCustomersCSV, importTables,
     clearAll, countAll, transaction, subscribe,
   };
 })();

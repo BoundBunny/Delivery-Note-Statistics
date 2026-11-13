@@ -36,6 +36,7 @@ app.whenReady().then(async () => {
   const res = await js(`(() => {
     try {
       try { Store.clearAll(); } catch (_) {}
+      try { Store.setSettings({ company: '离鼎智能科技有限公司', phone: '', address: '', contact: '', watermark: true }); } catch (_) {}
       const cust = Store.upsertCustomer({ name: 'A测试客户0', phone: '138 0000 1234', address: '城东街道 88 号' });
       const items = [
         { pid: '', name: '怡宝饮用纯净水 555ml', spec: '555ml', unit: '瓶', qty: 12, price: 2.00 },

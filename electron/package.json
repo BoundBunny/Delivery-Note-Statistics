@@ -37,7 +37,21 @@
     "test:workspace": "node tests/run-ui.cjs fixed-workspace.cjs",
     "pretest:workspace": "npm run build:desktop-assets",
     "test:audit": "node tests/run-ui.cjs logic-audit-ui.cjs",
-    "pretest:audit": "npm run build:desktop-assets"
+    "pretest:audit": "npm run build:desktop-assets",
+    "test:backup": "node tests/run-ui.cjs backup-migration.cjs",
+    "pretest:backup": "npm run build:desktop-assets",
+    "test:p2": "node tests/run-ui.cjs p2-regression.cjs",
+    "pretest:p2": "npm run build:desktop-assets",
+    "test:order-merge": "node tests/run-ui.cjs order-item-merge-ui.cjs",
+    "pretest:order-merge": "npm run build:desktop-assets",
+    "test:settings-export": "node tests/run-ui.cjs settings-export-ui.cjs",
+    "pretest:settings-export": "npm run build:desktop-assets",
+    "test:data-import": "node tests/run-ui.cjs data-import-ui.cjs",
+    "pretest:data-import": "npm run build:desktop-assets",
+    "test:settings-data": "node tests/run-ui.cjs settings-data-ui.cjs",
+    "pretest:settings-data": "npm run build:desktop-assets",
+    "test:order-preview": "node tests/run-ui.cjs order-preview-ui.cjs",
+    "pretest:order-preview": "npm run build:desktop-assets"
   },
   "devDependencies": {
     "electron": "^31.7.7",

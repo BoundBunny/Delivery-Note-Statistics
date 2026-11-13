@@ -13,6 +13,10 @@ Views.bill = {
 
     const el = document.createElement('div');
     el.className = 'view active';
+    if (Store.recoveryState().blocked) {
+      el.innerHTML = '<div class="empty"><div class="em-t">本地数据异常，账单暂不可用</div><p>请先导出原始数据，再恢复有效备份。</p></div>';
+      return el;
+    }
 
     const groups = Store.billGroups(ym);
     const group = groups.find(x => String(x.key) === String(key));
@@ -28,7 +32,7 @@ Views.bill = {
     }
 
     const s = Store.getSettings();
-    const st = { editing: false, title: billTitleFor(group.name, ym), note: s.note || '' };
+    const st = { editing: false, title: billTitleFor(group.name, ym), note: '' };
 
     const rows = [];
     let qtySum = 0, amtSum = 0;
@@ -50,7 +54,7 @@ Views.bill = {
               <td>${esc(r.date.slice(5))}</td>
               <td style="text-align:left">${esc(r.name)}</td>
               <td>${fmtNum(r.qty)}</td>
-              <td>${fmtMoney(r.price)}</td>
+              <td>${fmtPrice(r.price)}</td>
               <td>${fmtMoney(r.amount)}</td>
               <td>${esc(r.remark)}</td>
             </tr>`).join('') : `<tr><td colspan="6" style="color:var(--muted);padding:14px">暂无明细</td></tr>`}
@@ -85,7 +89,7 @@ Views.bill = {
 
     el.addEventListener('click', async e => {
       if (e.target.closest('[data-act="back"]')) { history.length > 1 ? history.back() : (location.hash = '#/stats'); return; }
-      if (e.target.closest('[data-act="print"]')) { if(window.Android?.printPdf)await window.Android.printPdf('客户账单');else window.print(); return; }
+      if (e.target.closest('[data-act="print"]')) { if(!ensureExportable())return; if(window.Android?.printPdf)await window.Android.printPdf('客户账单');else window.print(); return; }
       if (e.target.closest('[data-act="edit"]')) {
         st.editing = !st.editing;
         $('[data-role="editBox"]', el).classList.toggle('hidden', !st.editing);
@@ -108,6 +112,7 @@ Views.bill = {
         return;
       }
       if (e.target.closest('[data-act="export"]')) {
+        if (!ensureExportable()) return;
         const bytes = Xlsx.build([{
           name: group.name.slice(0, 31),
           title: st.title,
@@ -115,6 +120,7 @@ Views.bill = {
           rows: rows.map(r => [r.date, r.name, r.qty, r.price, r.amount, r.remark]),
           widths: [12, 26, 10, 10, 12, 20],
           footer: ['', '合计', '', '', amtSum, ''],
+          note: st.note,
         }]);
         if ((await downloadBlob('账单_' + group.name + '_' + ym + '.xlsx', xlsxBlob(bytes))).ok) toast('已导出 Excel');
       }

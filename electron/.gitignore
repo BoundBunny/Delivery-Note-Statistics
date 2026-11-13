@@ -5,6 +5,7 @@ renderer/generated/
 
 # 临时截图自检产物
 .shots/
+.preview/
 
 # 商品图片默认存储目录（运行时生成）
 CommercesData/

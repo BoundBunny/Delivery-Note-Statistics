@@ -1,0 +1,50 @@
+'use strict';
+const {app,BrowserWindow}=require('electron');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),assert=require('node:assert/strict');
+const ROOT=path.resolve(__dirname,'..'),OUT=path.join(ROOT,'.shots/stats-clarity');fs.mkdirSync(OUT,{recursive:true});
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'dns-sales-chart-'));
+for(const [key,folder] of Object.entries({DNS_TEST_USER_DATA:'profile',DNS_TEST_DATA_DIR:'data',DNS_TEST_BACKUP_DIR:'backup',DNS_TEST_IMAGE_DIR:'images'}))process.env[key]=path.join(temp,folder);
+app.setPath('userData',process.env.DNS_TEST_USER_DATA);app.disableHardwareAcceleration();
+const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms)),errors=[];
+const deadline=setTimeout(()=>{console.error('SALES_CHART_TIMEOUT');app.exit(1);},90000);
+app.on('web-contents-created',(_event,contents)=>contents.on('console-message',(_e,level,message)=>{if(level>=3)errors.push(message);}));
+require(path.join(ROOT,'main.js'));
+app.whenReady().then(async()=>{
+  let win;for(let i=0;i<200;i++){win=BrowserWindow.getAllWindows()[0];if(win)break;await pause(30);}assert.ok(win);
+  const js=code=>win.webContents.executeJavaScript(code,true);
+  const wait=async code=>{for(let i=0;i<200;i++){try{if(await js(code))return;}catch(_){}await pause(30);}throw Error('Timeout '+code);};
+  const nav=async hash=>{await js('location.hash='+JSON.stringify(hash));await pause(150);};
+  const chart=()=>js(`(()=>{const h=document.querySelector('#statistics-view [data-role=trend]');return {values:[...h.querySelectorAll('.bt-value')].map(n=>n.textContent),dates:[...h.querySelectorAll('.bt-x')].map(n=>n.textContent),heights:[...h.querySelectorAll('.bt-bar')].map(n=>parseFloat(n.style.height)),text:h.textContent,table:!!h.querySelector('table')};})()`);
+  const integrity=()=>js('JSON.stringify(JSON.parse(Store.exportJSON()).data)');
+  const capture=async name=>{
+    await js(`document.querySelector('#statistics-view [data-role=trend]').closest('.chart-card').scrollIntoView({block:'center',behavior:'instant'});void 0`);await pause(200);
+    const r=await js(`(()=>{const r=document.querySelector('#statistics-view [data-role=trend]').closest('.chart-card').getBoundingClientRect();return {x:Math.floor(r.x),y:Math.floor(r.y),width:Math.ceil(r.width),height:Math.ceil(r.height)}})()`);
+    fs.writeFileSync(path.join(OUT,name+'.png'),(await win.webContents.capturePage(r)).toPNG());
+  };
+  await wait('!!window.DNSDesktop?.ready');win.setContentSize(1440,1000);win.webContents.setBackgroundThrottling(false);
+  const day=await js('todayStr()');
+  await js(`Store.clearAll();DNSDesktop.setSceneEnabled(false);window.addChartOrder=(no,date,total)=>Store.addOrder({no,date,customer:null,items:[{name:'统计商品',unit:'件',qty:1,price:total,amount:total}],total});Store.transaction(()=>[2,42,3488,700,20022,4,22,62399].forEach((total,i)=>addChartOrder('CHART-'+i,todayStr(),total)));void 0`);
+  const before=await integrity(),overview=await js('document.querySelector("#statistics-summary").innerHTML');
+  await nav('#/stats');let state=await chart();assert.equal(state.table,false);assert.deepEqual(state.values,['86,679.00']);assert.deepEqual(state.dates,[day.slice(5).replace('-','/')]);assert.ok(state.heights[0]>0&&state.heights[0]<=100);assert.ok(state.text.includes('8 张单据'));assert.doesNotMatch(state.text,/每根柱表示一个销售日|柱顶为当日销售额|只有 1 个销售日/);assert.equal(await js('!!document.querySelector("#statistics-view .trend-explanation")'),false);
+  assert.equal(await js('document.querySelector("#statistics-view .sales-tick-zero").textContent'),'0');assert.equal(await integrity(),before);assert.equal(await js('document.querySelector("#statistics-summary").innerHTML'),overview);
+  await capture('single-day-chart');console.log('PASS single day displays a real column with visible date, amount, currency axis and totals; stored data and overview unchanged');
+  await nav('#/orders');await js(`Store.transaction(()=>{addChartOrder('OLDER',addDays(todayStr(),-3),1200);addChartOrder('YESTERDAY',addDays(todayStr(),-1),1400);});Views.stats.state={range:'custom',from:addDays(todayStr(),-3),to:todayStr(),billYm:''};void 0`);await nav('#/stats');
+  state=await chart();assert.deepEqual(state.values,['1,200.00','1,400.00','86,679.00']);assert.ok(state.heights[2]>state.heights[1]&&state.heights[1]>state.heights[0]);assert.ok(state.text.includes('89,279.00')&&state.text.includes('10 张单据'));
+  for(const [width,height] of [[1440,1000],[1024,680]]){
+    win.setContentSize(width,height);await pause(170);
+    assert.ok(await js(`(()=>{const h=document.querySelector('#statistics-view [data-role=trend]'),a=h.querySelector('.sales-axis').getBoundingClientRect();return [...h.querySelectorAll('.bt-value')].every(v=>{const r=v.getBoundingClientRect(),c=v.closest('.bt-col').getBoundingClientRect();return r.left>=c.left-1&&r.right<=c.right+1&&r.top>=a.top-1;});})()`));
+    await capture('multi-day-chart-'+width);
+  }
+  await js(`document.querySelector('#statistics-view [data-range=today]').click();void 0`);assert.deepEqual((await chart()).values,['86,679.00']);
+  await js(`document.querySelector('#statistics-view [data-range=custom]').click();const f=document.querySelector('#statistics-view [data-role=from]');f.value=addDays(todayStr(),1);f.dispatchEvent(new Event('change',{bubbles:true}));void 0`);assert.ok((await chart()).text.includes('日期范围无效'));assert.equal((await chart()).values.length,0);
+  console.log('PASS multiple dates have proportional bars, values fit 1440/1024 widths, and date filters and invalid ranges update correctly');
+  await nav('#/orders');await js(`Store.clearAll();Views.stats.state={range:'month',from:'',to:'',billYm:''};void 0`);await nav('#/stats');assert.ok((await chart()).text.includes('没有送货单'));assert.equal((await chart()).values.length,0);
+  await nav('#/orders');await js(`Store.transaction(()=>{addChartOrder('ZERO1',addDays(todayStr(),-1),0);addChartOrder('ZERO2',todayStr(),0);});Views.stats.state={range:'custom',from:addDays(todayStr(),-1),to:todayStr(),billYm:''};void 0`);await nav('#/stats');assert.deepEqual((await chart()).values,['0.00','0.00']);assert.deepEqual((await chart()).heights,[0,0]);
+  await nav('#/orders');await js(`Store.clearAll();Store.transaction(()=>{for(let i=0;i<45;i++)addChartOrder('LONG-'+i,addDays(todayStr(),i-44),i+1);});Views.stats.state={range:'custom',from:addDays(todayStr(),-44),to:todayStr(),billYm:''};void 0`);await nav('#/stats');assert.equal((await chart()).values.length,45);assert.ok((await chart()).text.includes('1,035.00'));
+  assert.ok(await js(`(()=>{const h=document.querySelector('#statistics-view .sales-plot-window');return h.scrollWidth>h.clientWidth&&Math.abs(h.scrollWidth-h.clientWidth-h.scrollLeft)<2;})()`));await capture('many-days-chart');
+  await js(`const h=document.querySelector('#statistics-view .sales-plot-window');h.scrollLeft=0;h.dispatchEvent(new Event('scroll'));document.querySelector('#statistics-view [data-role=billYm]').dispatchEvent(new Event('change',{bubbles:true}));void 0`);await pause(100);assert.equal(await js('document.querySelector("#statistics-view .sales-plot-window").scrollLeft'),0);
+  await nav('#/orders');await js(`Store.clearAll();addChartOrder('BIG1',addDays(todayStr(),-1),999998000001);addChartOrder('BIG2',todayStr(),888888888888);Views.stats.state={range:'custom',from:addDays(todayStr(),-1),to:todayStr(),billYm:''};void 0`);await nav('#/stats');assert.deepEqual((await chart()).values,['999,998,000,001.00','888,888,888,888.00']);
+  assert.ok(await js(`[...document.querySelectorAll('#statistics-view .bt-value')].every(v=>{const r=v.getBoundingClientRect(),c=v.closest('.bt-col').getBoundingClientRect();return r.left>=c.left-1&&r.right<=c.right+1;})`));assert.deepEqual(errors,[]);
+  console.log('PASS empty and zero data, all 45 dates, horizontal scrolling, scroll preservation and large amounts; no renderer errors');
+  fs.writeFileSync(path.join(OUT,'verification.json'),JSON.stringify({ok:true,errors},null,2));clearTimeout(deadline);app.exit(0);
+}).catch(error=>{console.error(error.stack||error);console.error(JSON.stringify(errors));clearTimeout(deadline);app.exit(1);});

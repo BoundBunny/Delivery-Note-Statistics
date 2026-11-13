@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), path = require('node:path'), os = require('node:os');
 const ROOT = path.resolve(__dirname,'..');
 const profile = fs.mkdtempSync(path.join(os.tmpdir(),'dns-desktop-live-'));
+for(const [key,folder] of Object.entries({DNS_TEST_DATA_DIR:'data',DNS_TEST_BACKUP_DIR:'backup',DNS_TEST_IMAGE_DIR:'images'}))process.env[key]=path.join(profile,folder);
 const OUT = path.join(ROOT,'.shots/electron-live');fs.mkdirSync(OUT,{recursive:true});
 app.setPath('userData',profile);
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
@@ -72,8 +73,8 @@ app.whenReady().then(async()=>{
     fs.writeFileSync(path.join(OUT,'workspace.png'),(await win.webContents.capturePage()).toPNG());
   });
   await check('navigation opens existing order collection in its fixed zone',async()=>{
-    await nav('#/orders');assert.equal(await js('document.querySelector("#dispatch-collection h1").textContent'),'送货单据');
-    assert.equal(await js('DNSDesktop.scene.stats().paused'),true);
+    await nav('#/orders');assert.equal(await js('document.querySelector("#dispatch-title").textContent'),'送货单');
+    assert.equal(await js('DNSDesktop.scene.stats().paused'),false);
     assert.equal(await js('document.querySelector(".desktop-business-page").hidden'),true);
     assert.equal(await js('document.body.classList.contains("desktop-business-mode")'),false);
     fs.writeFileSync(path.join(OUT,'orders.png'),(await win.webContents.capturePage()).toPNG());
@@ -83,9 +84,12 @@ app.whenReady().then(async()=>{
     await js(`(() => {const view=document.querySelector('#view-container .view');view.__draft.customer={...fixture.customer};view.__draft.items=[{pid:fixture.product.id,name:fixture.product.name,spec:fixture.product.spec,unit:'瓶',qty:'2',price:'3.33'}];view.querySelector('[data-act=save]').click();})()`);
     await pause(250);assert.equal(await js('Store.countAll().orders'),3);assert.equal(await js('Store.listOrders()[0].total'),6.66);
     assert.equal(await js('Store.getOrder(DNSDesktop.state.selectedId).total'),6.66);
-    assert.ok((await js('localStorage.getItem("sd_v1_orders")')).includes('6.66'));
+    const info = await js('Android.getStorageInfo()');
+    const diskOrders = JSON.parse(fs.readFileSync(path.join(info.info.dataDir, 'sd_v1_orders.json'), 'utf8'));
+    assert.ok(diskOrders.some(order => order.total === 6.66));
+    assert.equal(await js('localStorage.getItem("sd_v1_orders")'), null);
     await win.reload();await wait('!!window.DNSDesktop?.ready');assert.equal(await js('Store.countAll().orders'),3);
-    await js('window.fixture={order:Store.listOrders().find(o=>o.total===1234.56),product:Store.listProducts()[0],customer:Store.listCustomers()[0]};void 0');
+    await js('window.fixture={order:Store.listOrders().find(o=>o.total===1234.56),product:Store.listProducts().find(p=>p.name==="测试饮用水"),customer:Store.listCustomers()[0]};void 0');
   });
   await check('copy from workspace creates a new ID without changing source order',async()=>{
     await nav('#/home');await js('DNSDesktop.selectOrder(fixture.order.id);window.beforeOriginal=JSON.stringify(Store.getOrder(fixture.order.id));document.querySelector("#desktop-app [data-action=copy-order]").click();void 0');await pause(200);
@@ -124,8 +128,9 @@ app.whenReady().then(async()=>{
   });
   await check('restoring a backup refreshes live workspace without sample records',async()=>{
     await nav('#/settings');
-    await js('window.backup=Store.exportJSON();Store.upsertProduct({name:"临时商品"});Store.importJSON(window.backup);void 0');await nav('#/home');
-    assert.equal(await js('Store.listProducts().length'),1);assert.equal(await js('Store.countAll().orders'),4);
+    await js('window.beforeBackupProducts=Store.listProducts().length;window.backup=Store.exportJSON();Store.upsertProduct({name:"临时商品"});Store.importJSON(window.backup);void 0');await nav('#/home');
+    assert.equal(await js('Store.listProducts().length'),await js('beforeBackupProducts'));assert.equal(await js('Store.countAll().orders'),4);
+    assert.equal(await js('Store.listProducts().some(p=>p.name==="临时商品")'),false);
     assert.equal(await js('document.getElementById("desktop-app").textContent.includes("示例数据")'),false);
   });
   await check('scene preference uses its own key and survives reload',async()=>{
@@ -136,7 +141,7 @@ app.whenReady().then(async()=>{
   await check('minimum desktop viewport keeps navigation and actions usable',async()=>{
     win.setContentSize(1024,680);await pause(300);
     assert.ok((await js('document.documentElement.scrollWidth'))<=(await js('innerWidth')));
-    assert.equal(await js('document.querySelectorAll("#desktop-app .nav-item").length'),6);
+    assert.equal(await js('document.querySelectorAll("#desktop-app .nav-item").length'),5);
     await nav('#/order/new');assert.ok(await js('!!document.querySelector("#view-container [data-act=save]")'));
     fs.writeFileSync(path.join(OUT,'minimum-edit.png'),(await win.webContents.capturePage()).toPNG());
   });
@@ -154,9 +159,10 @@ app.whenReady().then(async()=>{
   });
   await check('day and night controls update the scoped desktop scene',async()=>{
     await nav('#/home');
+    const night=await js('DNSDesktop.scene.stats().night');
     const before=await js('getComputedStyle(document.getElementById("scene-surface")).backgroundImage');
     await js('document.querySelector("#desktop-app [data-action=lighting]").click();void 0');await pause(150);
-    assert.equal(await js('DNSDesktop.scene.stats().night'),true);
+    assert.equal(await js('DNSDesktop.scene.stats().night'),!night);
     assert.notEqual(await js('getComputedStyle(document.getElementById("scene-surface")).backgroundImage'),before);
     fs.writeFileSync(path.join(OUT,'night.png'),(await win.webContents.capturePage()).toPNG());
     await js('document.querySelector("#desktop-app [data-action=lighting]").click();void 0');

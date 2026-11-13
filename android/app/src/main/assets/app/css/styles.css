@@ -21,7 +21,9 @@
   --red-soft:#FFF1F2;
   --green:#059669;
   --green-soft:#ECFDF5;
-  --grad-primary:linear-gradient(135deg,#6366F1 0%,#8B5CF6 55%,#D946EF 100%);
+  --brand-ink:#24364B;
+  --brand-gold:#D99A2B;
+  --grad-primary:linear-gradient(135deg,#6366F1 0%,#7C3AED 100%);
   --ring:0 0 0 3px rgba(99,102,241,.18);
   --shadow:0 0 0 1px rgba(24,24,27,.06),0 1px 2px rgba(24,24,27,.04),0 4px 14px rgba(24,24,27,.035);
   --shadow-hover:0 0 0 1px rgba(99,102,241,.22),0 8px 28px -6px rgba(79,70,229,.22);
@@ -702,25 +704,8 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
   #view-container{flex:1;min-width:0;padding-bottom:48px}
   #view-container>.view{max-width:none;margin:0;padding-top:0}
 
-  /* ---- 3D 背景板模式：整个应用浮在背景板上，功能模块照常使用 ----
-   * 工作面是一整块连续的磨砂玻璃（不再是卡片缝里透出场景），
-   * 文字、按钮、列表、弹窗都在玻璃之上，背景板只作氛围，互不遮挡。 */
-  body.bg3d-on #app{padding:14px;gap:14px}
-  body.bg3d-on #tabbar{
-    top:14px;height:calc(100vh - 28px);
-    border-radius:16px;border-right:none;
-    background:linear-gradient(180deg,rgba(255,255,255,.90),rgba(243,245,249,.84));
-    -webkit-backdrop-filter:blur(18px) saturate(1.05);
-    backdrop-filter:blur(18px) saturate(1.05);
-    box-shadow:0 8px 26px rgba(24,24,27,.10);
-  }
-  body.bg3d-on #view-container{
-    border-radius:16px;
-    background:rgba(247,247,250,var(--bg3d-sheet,.72));
-    -webkit-backdrop-filter:blur(20px) saturate(1.06);
-    backdrop-filter:blur(20px) saturate(1.06);
-    box-shadow:0 10px 30px rgba(24,24,27,.12);
-  }
+  /* 注：原"整页玻璃背景板"布局规则已移除——3D 现在只以「沙盘卡片」的形式存在，
+     不允许改动既有布局。 */
   /* 客户字母索引：贴工作面右缘 */
   .customer-index{bottom:14px;right:14px}
 }
@@ -1013,7 +998,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
   #tabbar .tab-item.on:not(.tab-new){background:linear-gradient(90deg,rgba(99,102,241,.13),rgba(139,92,246,.05));box-shadow:inset 0 0 0 1px rgba(99,102,241,.14)}
   #tabbar .tab-new .new-circle{border:none;box-shadow:0 4px 10px -2px rgba(124,58,237,.5)}
 }
-.side-brand-text b{background:var(--grad-primary);-webkit-background-clip:text;background-clip:text;color:transparent}
+.side-brand-text b{color:var(--brand-ink)}
 
 /* 弹层 / 提示 */
 .mask{background:rgba(9,9,11,.42);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
@@ -1068,3 +1053,75 @@ input:focus,select:focus,textarea:focus{border-color:var(--amber);box-shadow:var
 .id-pick-item.on{background:var(--amber-soft)}
 
 @media print{body::before,body::after{display:none!important}}
+
+/* ============================================================
+   工作台沙盘卡片（有界模块，不是整页铺底）
+   ============================================================ */
+.home-stage{display:none}
+body.bg3d-on .home-stage{
+  display:grid;grid-template-columns:minmax(0,1fr) 214px;height:448px;margin:14px 0 16px;
+  border-radius:18px;overflow:hidden;isolation:isolate;
+  background:radial-gradient(120% 130% at 26% 30%,#FFFFFF 0%,#F4F7FD 52%,#E9EEF7 100%);
+  border:1px solid var(--line);
+  box-shadow:0 10px 30px -18px rgba(24,24,27,.28);
+}
+.home-stage .hs-view{position:relative;overflow:hidden;border-top:2px solid var(--brand-gold)}
+.home-stage .hs-view canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:pointer}
+/* 实时指标条（叠在 3D 左上角，不挡点击） */
+.home-stage .hs-kpi{
+  position:absolute;left:12px;top:12px;z-index:2;display:flex;gap:14px;
+  padding:8px 14px;border-radius:12px;pointer-events:none;
+  max-width:calc(100% - 24px);flex-wrap:wrap;row-gap:8px;
+  background:rgba(255,255,255,.86);border:1px solid rgba(203,213,225,.75);
+  box-shadow:0 8px 20px -14px rgba(24,24,27,.45);backdrop-filter:blur(3px);
+}
+.home-stage .hs-kpi-item{display:flex;flex-direction:column;line-height:1.15}
+.home-stage .hs-kpi-item b{font-size:15px;font-weight:800;color:#27272A;letter-spacing:.2px}
+.home-stage .hs-kpi-item span{font-size:10.5px;color:var(--muted);margin-top:2px}
+/* 悬停提示 */
+.home-stage .hs-tip{
+  position:absolute;left:12px;bottom:12px;z-index:2;
+  font-size:11.5px;font-weight:600;color:#fff;background:rgba(39,39,42,.82);
+  padding:5px 11px;border-radius:999px;pointer-events:none;
+  opacity:0;transform:translateY(4px);transition:opacity .15s ease,transform .15s ease;
+  max-width:calc(100% - 24px);overflow-wrap:anywhere;
+}
+.home-stage .hs-tip.on{opacity:1;transform:translateY(0)}
+.home-stage .hs-side{
+  background:rgba(255,255,255,.86);border-left:1px solid var(--line);
+  padding:12px 12px 10px;display:flex;flex-direction:column;gap:8px;min-width:0;overflow-y:auto;
+}
+.home-stage .hs-side-title{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.3px}
+.home-stage .hs-chips{display:flex;flex-direction:column;gap:4px;min-width:0}
+.home-stage .hs-chip{
+  display:flex;align-items:center;gap:7px;width:100%;
+  border:1px solid var(--line);border-radius:10px;
+  background:#fff;color:#3F3F46;font-size:12px;font-weight:600;line-height:1;
+  padding:6px 9px;cursor:pointer;text-align:left;
+  height:34px;min-height:34px;flex:none;font-size:13px;
+  transition:transform .15s ease,background .15s ease,border-color .15s ease,color .15s ease;
+}
+.home-stage .hs-chip i{width:9px;height:9px;border-radius:3px;flex:0 0 auto}
+.home-stage .hs-chip:hover{transform:translateX(2px);border-color:#C7D2FE;background:#F7F8FF}
+.home-stage .hs-chip.hot{background:#4F46E5;border-color:#4F46E5;color:#fff;box-shadow:0 6px 14px -6px rgba(79,70,229,.7)}
+.home-stage .hs-chip.hot i{box-shadow:0 0 0 2px rgba(255,255,255,.5)}
+/* 分类商品数 */
+.home-stage .hs-chip-n{
+  margin-left:auto;flex:0 0 auto;font-size:11px;font-weight:700;color:#52525B;
+  background:#F1F5F9;border-radius:999px;padding:2px 7px;line-height:1.4;
+}
+.home-stage .hs-chip-n.zero{color:#A1A1AA;background:#F4F4F5}
+.home-stage .hs-chip.hot .hs-chip-n{background:rgba(255,255,255,.28);color:#fff}
+/* 功能入口（开单 / 单据 / 客户 / 统计） */
+.home-stage .hs-mods{display:flex;gap:5px;min-width:0;flex:none}
+.home-stage .hs-mod{
+  flex:1 1 0;min-width:0;border:1px solid var(--line);border-radius:9px;background:#fff;
+  color:var(--brand-ink);font-size:13px;font-weight:700;line-height:1;padding:6px 4px;min-height:40px;cursor:pointer;
+  transition:transform .15s ease,background .15s ease,color .15s ease,border-color .15s ease;
+}
+.home-stage .hs-mod:hover{transform:translateY(-1px);border-color:#C7D2FE;color:#4F46E5}
+.home-stage .hs-mod.hot{background:#4F46E5;border-color:#4F46E5;color:#fff}
+.home-stage .hs-side-tip{margin-top:auto;font-size:10.5px;color:var(--muted);line-height:1.5;flex:none}
+@media (max-width:899px){
+  body.bg3d-on .home-stage{display:none}
+}

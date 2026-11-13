@@ -66,7 +66,6 @@ function dataListView({ kind, title, editId }) {
             <div class="field"><label class="lab">联系人</label><input data-role="contact" value="${esc(d ? d.contact : '')}"></div>
           </div>
           <div class="field"><label class="lab">地址</label><input data-role="address" value="${esc(d ? d.address : '')}"></div>
-          <div class="field"><label class="lab">备注</label><input data-role="remark" value="${esc(d ? d.remark : '')}"></div>
           <div class="btn-row" style="padding:4px 0 0">
             <button class="btn btn-ghost" data-act="form-cancel">取消</button>
             <button class="btn btn-primary" data-act="form-save">保存</button>
@@ -123,7 +122,7 @@ function dataListView({ kind, title, editId }) {
     const itemHtml = item => {
       const main = kind === 'customers'
         ? { t: item.name, s: [item.phone, item.address].filter(Boolean).join(' · ') || '无联系方式', extra: '客户' }
-        : { t: item.name, s: [item.code, item.spec, item.unit].filter(Boolean).join(' · ') || '无规格', extra: item.price != null ? '¥' + fmtMoney(item.price) : '无价' };
+        : { t: item.name, s: [item.code, item.spec, item.unit].filter(Boolean).join(' · ') || '无规格', extra: item.price != null ? '¥' + fmtPrice(item.price) : '无价' };
       return `
         <div class="list-item" data-item-id="${esc(item.id)}">
           <div class="li-main">
@@ -279,7 +278,7 @@ Views.customers = { render(params) { const id=params&&params.edit;return dataLis
  *   风格参考 POS：顶部分类胶囊 + 商品卡片网格。
  *   分类：所有 / 烟酒 / 饮料 / 零食 / 其他。
  *   每张卡片：图片区 + 左下角(名称/单价/规格单位) + 右侧垃圾桶(二次确认删除)。
- *   网格最后一张为「圆形 +」添加商品卡片。
+ *   网格第一张为「圆形 +」添加商品卡片。
  * ============================================================ */
 function productCardView(params) {
   const CATS = [
@@ -352,7 +351,7 @@ function productCardView(params) {
       <div class="pm-body">
         <div class="pm-info">
           <div class="pm-name" title="${esc(p.name)}">${esc(p.name)}</div>
-          <div class="pm-price">${p.price != null ? '¥' + fmtMoney(p.price) : '未定价'}</div>
+          <div class="pm-price">${p.price != null ? '¥' + fmtPrice(p.price) : '未定价'}</div>
           <div class="pm-meta">${esc([p.spec, p.unit].filter(Boolean).join(' / ') || '无规格')}</div>
         </div>
         ${p.archived ? `<button type="button" class="pm-restore" data-restore="${esc(p.id)}" aria-label="恢复上架 ${esc(p.name)}" title="恢复上架">
@@ -466,29 +465,34 @@ function productCardView(params) {
     gridList = list;
     gridRendered = 0;
     const grid = $('[data-role="grid"]', el);
-    const emptyHint = list.length ? '' : `<div class="pm-empty">${(st.kw || st.category !== 'all') ? '没有找到匹配的商品' : '还没有商品，点下方圆圈「+」添加第一个商品'}</div>`;
-    grid.innerHTML = emptyHint;
-    if (!list.length) return;
-    appendCardBatch(grid, PAGE_SIZE);
-    // 「添加商品」卡固定放在最后
+    const emptyHint = list.length ? '' : `<div class="pm-empty">${(st.kw || st.category !== 'all') ? '没有找到匹配的商品' : '还没有商品，点上方「+」添加第一个商品'}</div>`;
+    grid.innerHTML = '';
+    // 「添加商品」卡固定放在第一位
     const addWrap = document.createElement('div');
     addWrap.style.display = 'contents';
     addWrap.innerHTML = addCardHtml;
     grid.appendChild(addWrap);
+    if (emptyHint) {
+      const hintWrap = document.createElement('div');
+      hintWrap.style.display = 'contents';
+      hintWrap.innerHTML = emptyHint;
+      grid.appendChild(hintWrap);
+      return;
+    }
+    appendCardBatch(grid, PAGE_SIZE);
     if (gridRendered < list.length) {
-      const sentinel = ensureSentinel(grid);
-      // 哨兵要排在「添加卡」之前，才能让新批次插在正确位置
-      grid.insertBefore(sentinel, addWrap);
+      // 哨兵排在所有商品卡之后，新批次会插在它前面
+      ensureSentinel(grid);
       gridObserver = new IntersectionObserver(entries => {
         if (entries.some(en => en.isIntersecting)) {
           appendCardBatch(grid, PAGE_SIZE);
           if (gridRendered >= list.length) {
             stopGridObserver();
-            if (sentinel && sentinel.parentNode) sentinel.parentNode.removeChild(sentinel);
+            if (gridSentinel && gridSentinel.parentNode) gridSentinel.parentNode.removeChild(gridSentinel);
           }
         }
       }, { rootMargin: '400px 0px' });
-      gridObserver.observe(sentinel);
+      gridObserver.observe(gridSentinel);
     }
   };
 
