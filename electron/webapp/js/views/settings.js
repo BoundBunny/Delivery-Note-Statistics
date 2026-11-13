@@ -142,7 +142,7 @@ Views.settings = {
             <div class="settings-row settings-about-row">
               <img class="brand-icon brand-icon-about settings-brand-icon" src="assets/brand/dns-icon.svg" width="32" height="32" alt="送货宝标志">
               <span class="settings-row-main"><span class="settings-row-title">送货宝</span><span class="settings-row-note">完全本地离线运行</span></span>
-              <span class="settings-row-value">v1.0</span>
+              <span class="settings-row-value">v2.0.0</span>
             </div>
           </div>
         </section>
@@ -353,6 +353,7 @@ Views.settings = {
         try {
           Store.importJSON(prepared.text);
           restored = true;
+          window.ScanOrders?.clearForReplacement();
           toast('恢复成功');
           location.hash = '#/home';
         } catch (err) {
@@ -422,6 +423,7 @@ Views.settings = {
         const ok = await confirmDialog({ title: '确定清空全部数据？', text: '所有单据、客户、商品将被删除，无法恢复。建议先导出备份。', okText: '清空', danger: true });
         if (!ok) return;
         try { Store.clearAll(); } catch(error) { toast(error.message || '清空失败',true);return; }
+        window.ScanOrders?.clearForReplacement();
         toast('已清空');
         location.hash = '#/home';
       }

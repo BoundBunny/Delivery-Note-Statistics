@@ -17,6 +17,7 @@ CommercesData/
 
 # 临时验证脚本（本地排查用，不属于交付物）
 .tmp-probe/
+.tmp-*
 .probe*.js
 
 # 本地工具 / ACL 诊断恢复产物，不提交

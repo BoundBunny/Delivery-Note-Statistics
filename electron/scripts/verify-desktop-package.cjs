@@ -50,7 +50,7 @@ if(!nativeExecutableSmoke){
   if(!archiveRuntimeSmoke)throw new Error('Archive runtime verification failed: '+JSON.stringify({status:archiveRun.status,error:archiveRun.error?.message,result,stdout:archiveRun.stdout,stderr:archiveRun.stderr}));
 }
 if(!result?.checks.some(([name,ok])=>name==='桌面场景工作台已就绪'&&ok))throw new Error('The desktop workspace was not loaded from the bundle');
-const installer=path.join(releaseDir,'送货宝 Setup 1.0.0.exe');
+const installer=path.join(releaseDir,'送货宝 Setup '+require('../package.json').version+'.exe');
 // Verify the installer payload itself, not just the intermediate unpacked build.
 const payload=fs.mkdtempSync(path.join(os.tmpdir(),'dns-installer-payload-'));
 const extract=spawnSync(sevenZip,['x',installer,'-o'+payload,'-y'],{encoding:'utf8',windowsHide:true,timeout:60000});

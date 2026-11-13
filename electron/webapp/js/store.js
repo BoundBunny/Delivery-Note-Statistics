@@ -231,9 +231,33 @@ const Store = (() => {
     const barcode = String(s.barcode || '').trim();
     return barcode ? 'barcode:' + barcode : 'name:' + seedKey(s.name, s.spec);
   }
+  const SEED_BARCODE_FLAG = 'sd_v1_seed_barcodes_v1';
+  // 内置烟草商品自带条码表（seed-barcodes.js），按「名称+单位」取「盒/条」条码；
+  // 仅补空缺，不覆盖用户已填写的条码。
+  function seedBarcodeFor(name, unit) {
+    const table = window.SEED_BARCODES;
+    if (!table || typeof table !== 'object') return '';
+    const rec = table[String(name == null ? '' : name).trim()];
+    if (!rec || typeof rec !== 'object') return '';
+    return String(rec[String(unit == null ? '' : unit).trim()] || '').trim();
+  }
+  function fillSeedBarcodes() {
+    try {
+      if (LS.getItem(SEED_BARCODE_FLAG) === '1') return;
+      const used = new Set(d.products.filter(p => p && p.barcode).map(p => String(p.barcode).trim()));
+      let changed = 0;
+      d.products.forEach(p => {
+        if (!p || p.barcode) return;
+        const barcode = seedBarcodeFor(p.name, p.unit);
+        if (barcode && !used.has(barcode)) { p.barcode = barcode; used.add(barcode); changed++; }
+      });
+      if (changed) persist();
+      if (window.SEED_BARCODES && Object.keys(window.SEED_BARCODES).length) LS.setItem(SEED_BARCODE_FLAG, '1');
+    } catch (_) {}
+  }
   function seedProduct(s) {
     const product = {
-      barcode: String(s.barcode || '').trim(), name: String(s.name || '').trim(),
+      barcode: String(s.barcode || seedBarcodeFor(s.name, s.unit) || '').trim(), name: String(s.name || '').trim(),
       unit: String(s.unit || '').trim(), spec: String(s.spec || '').trim(), category: String(s.category || '').trim(),
       price: s.price != null && s.price !== '' && Number.isFinite(Number(s.price)) ? Number(s.price) : undefined,
       cost: s.cost != null && s.cost !== '' && Number.isFinite(Number(s.cost)) ? Number(s.cost) : undefined,
@@ -292,7 +316,7 @@ const Store = (() => {
         let added = 0;
         seeds.forEach((s, i) => {
           const item = {
-            barcode: String(s && s.barcode || '').trim(),
+            barcode: String(s && s.barcode || seedBarcodeFor(s && s.name, s && s.unit) || '').trim(),
             name: String(s && s.name || '').trim(),
             unit: String(s && s.unit || '').trim(),
             spec: String(s && s.spec || '').trim(),
@@ -511,11 +535,18 @@ const Store = (() => {
    * 一次性迁移：给没有图片的商品自动补上内置图片；
    * 用户自己设置过图片（本地绝对路径）的商品不覆盖。
    */
+  let _bundleSrc = null, _bundleNorm = null;
   function bundledImageFor(name) {
     const map = window.BUNDLED_IMAGES;
     if (!map || typeof map !== 'object') return '';
-    const key = dedupeNorm(name);
-    const file = map[key];
+    // 图库键可能是全角括号/大小写/空格（如「中华（华章）」），而 dedupeNorm 会做 NFKC 归一。
+    // 两套键分别建一次索引，保证「原样名」与「归一化名」都能命中。
+    if (_bundleSrc !== map) {
+      _bundleSrc = map;
+      _bundleNorm = {};
+      for (const k in map) { if (Object.prototype.hasOwnProperty.call(map, k)) _bundleNorm[dedupeNorm(k)] = map[k]; }
+    }
+    const file = map[name] || _bundleNorm[dedupeNorm(name)];
     return file ? 'bundle:' + file : '';
   }
   function bindBundledImages() {
@@ -544,7 +575,7 @@ const Store = (() => {
   const d = load();
   committed = {};
   Object.keys(K).forEach(k => { committed[k] = JSON.stringify(d[k]); });
-  if (!recoveryBlocked) { seedInitialProducts(); recategorizeProducts(); dedupeProducts(); bindBundledImages(); }
+  if (!recoveryBlocked) { seedInitialProducts(); fillSeedBarcodes(); recategorizeProducts(); dedupeProducts(); bindBundledImages(); }
 
   /* ---------- 设置 ---------- */
   function getSettings() { return d.settings; }
@@ -594,6 +625,12 @@ const Store = (() => {
     return arr.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
   function getProduct(id) { return d.products.find(p => p.id === id); }
+  function assertProductBarcode(data) {
+    if (data.barcode != null) {
+      const barcode = String(data.barcode).trim();
+      if (barcode && d.products.some(product => product.id !== data.id && String(product.barcode || '').trim() === barcode)) throw new Error('该条码已被其他商品使用，请检查后再保存');
+    }
+  }
   function upsertProduct(data) {
     if (!data || typeof data.name !== 'string' || !data.name.trim()) throw new Error('请填写商品名称');
     ['price','cost'].forEach(key => {
@@ -1201,7 +1238,7 @@ const Store = (() => {
     get revision() { return revision; },
     getSettings, setSettings,
     listCustomers, getCustomer, upsertCustomer, deleteCustomer, countCustomerOrders,
-    listProducts, getProduct, upsertProduct, deleteProduct, restoreProduct, productHasOrders,
+    listProducts, getProduct, upsertProduct, assertProductBarcode, deleteProduct, restoreProduct, productHasOrders,
     listOrders, getOrder, addOrder, updateOrder, deleteOrder, orderIndex, siblingOrder,
     nextOrderNo, reclaimNo,
     getLastPrice, setLastPrice,

@@ -1,6 +1,6 @@
 {
   "name": "songhuodan-desktop",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "description": "送货宝 — 独立 Electron 桌面应用",
   "main": "main.js",
@@ -51,7 +51,9 @@
     "test:settings-data": "node tests/run-ui.cjs settings-data-ui.cjs",
     "pretest:settings-data": "npm run build:desktop-assets",
     "test:order-preview": "node tests/run-ui.cjs order-preview-ui.cjs",
-    "pretest:order-preview": "npm run build:desktop-assets"
+    "pretest:order-preview": "npm run build:desktop-assets",
+    "test:scanner": "node tests/run-ui.cjs scanner-orders-ui.cjs",
+    "pretest:scanner": "npm run build:desktop-assets"
   },
   "devDependencies": {
     "electron": "^31.7.7",

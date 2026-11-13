@@ -200,7 +200,7 @@ function dataListView({ kind, title, editId }) {
           payload.cost = Number.isFinite(c) ? c : undefined;
         }
         if (st.editing !== 'new') payload.id = st.editing;
-        try { kind === 'customers' ? Store.upsertCustomer(payload) : Store.upsertProduct(payload); }
+        try { if (kind === 'products') Store.assertProductBarcode(payload); kind === 'customers' ? Store.upsertCustomer(payload) : Store.upsertProduct(payload); }
         catch (error) { toast(error.message || '保存失败',true);return; }
         el.dispatchEvent(new Event('dns-form-committed',{bubbles:true}));
         toast('已保存');
@@ -352,7 +352,7 @@ function productCardView(params) {
         <div class="pm-info">
           <div class="pm-name" title="${esc(p.name)}">${esc(p.name)}</div>
           <div class="pm-price">${p.price != null ? '¥' + fmtPrice(p.price) : '未定价'}</div>
-          <div class="pm-meta">${esc([p.spec, p.unit].filter(Boolean).join(' / ') || '无规格')}</div>
+          <div class="pm-meta">${esc((p.spec && p.unit && String(p.spec).includes(p.unit)) ? p.spec : ([p.spec, p.unit].filter(Boolean).join(' / ') || '无规格'))}</div>
         </div>
         ${p.archived ? `<button type="button" class="pm-restore" data-restore="${esc(p.id)}" aria-label="恢复上架 ${esc(p.name)}" title="恢复上架">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
@@ -563,7 +563,7 @@ function productCardView(params) {
     } catch(error) { toast(error.message,true);return; }
     payload.image = st.image || '';
     if (st.editing !== 'new') payload.id = st.editing;
-    try { Store.upsertProduct(payload); } catch(error) { toast(error.message || '保存失败',true);return; }
+    try { Store.assertProductBarcode(payload); Store.upsertProduct(payload); } catch(error) { toast(error.message || '保存失败',true);return; }
     el.dispatchEvent(new Event('dns-form-committed',{bubbles:true}));
     toast('已保存');
     closeForm();

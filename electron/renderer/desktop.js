@@ -46,6 +46,7 @@ window.DNSDesktop = (() => {
   }
   function go(hash){
     hash=canonicalRoute(hash);
+    if(window.ScanOrders?.blocksNavigation(hash)){toast('请先保存当前扫码单，或选择继续本单',true);return Promise.resolve(false);}
     if(location.hash===hash){if(mode==='task'){if(['products','customers'].includes(page.dataset.module))revealModuleWindow(true);else page.focus({preventScroll:true});}return Promise.resolve(true);}
     if(pendingNavigation)return pendingNavigation;
     if(isDirty()){
@@ -226,18 +227,19 @@ window.DNSDesktop = (() => {
   function route(){
     if(!started)return;
     const hash=canonicalRoute(location.hash),url=new URL(hash.replace(/^#/,''),'https://desktop.invalid'),path=url.pathname,params=Object.fromEntries(url.searchParams);
+    if(window.ScanOrders?.blocksNavigation(hash)){history.replaceState(null,'',location.pathname+location.search+(routeKey||'#/order/scan'));toast('请先确认当前扫码单',true);return;}
     if(location.hash!==hash)history.replaceState(null,'',location.pathname+location.search+hash);
     if(routeKey===hash)return;
     if(isDirty()&&hash!==approvedHash){history.replaceState(null,'',location.pathname+location.search+(routeKey||'#/orders'));go(hash);return;}
     approvedHash=null;
-    if(Store.recoveryState().blocked&&/^\/order(?:\/new|\/edit)?$/.test(path)){toast('数据处于只读保护，请先恢复备份',true);location.hash='#/settings';return;}
+    if(Store.recoveryState().blocked&&/^\/order(?:\/new|\/edit|\/scan)?$/.test(path)){toast('数据处于只读保护，请先恢复备份',true);location.hash='#/settings';return;}
     const previousMode=mode,previousHash=routeKey,previousOpener=moduleOpener;
     clearModuleNotice();
     clearView();page.hidden=true;reader.hidden=true;moduleDirty=false;draftBaseline='';readStore();
     const detail=path==='/order/view';
     if(detail&&params.id&&Store.getOrder(params.id))state.selectedId=params.id;
     if(path==='/print'&&params.id&&Store.getOrder(params.id))state.selectedId=params.id;
-    const tasks={'/order/new':['order','orders','新建送货单'],'/order':['order','orders','新建送货单'],'/order/edit':['order','orders','编辑送货单'],'/products':['products','products','商品管理'],'/customers':['customers','customers','客户管理'],'/settings':['settings','settings','本机设置'],'/settings/company':['companyInfo','settings','公司 / 店铺信息']};
+    const tasks={'/order/scan':['scanOrder','orders','扫码送货单'],'/order/new':['order','orders','新建送货单'],'/order':['order','orders','新建送货单'],'/order/edit':['order','orders','编辑送货单'],'/products':['products','products','商品管理'],'/customers':['customers','customers','客户管理'],'/settings':['settings','settings','本机设置'],'/settings/company':['companyInfo','settings','公司 / 店铺信息']};
     if(path==='/orders'){mode='orders';state.panel='orders';if(params.order&&Store.getOrder(params.order))state.selectedId=params.order;const customerId=params.customer||'';if((Views.orders.state.customerId||'')!==customerId){Views.orders.state.customerId=customerId;if(customerId){Views.orders.state.range='all';Views.orders.state.kw='';}ordersRevision=-1;}setNavigation('orders');}
     else if(detail){
       if(previousMode!=='detail'&&previousMode!=='reader'&&!(previousMode==='task'&&taskReturn.startsWith('#/order/view')))detailReturn=previousMode==='task'?taskReturn:previousHash||'#/orders';
@@ -454,8 +456,10 @@ window.DNSDesktop = (() => {
     metricResizeObserver=new ResizeObserver(scheduleMetrics);metricResizeObserver.observe(root.querySelector('#dispatch-panel'));metricResizeObserver.observe(root.querySelector('#statistics-panel'));
     unsubscribeStore=Store.subscribe(()=>{if(started){if(!currentView?.__draft&&!editableForm())moduleDirty=false;refresh();}});
     refreshTimer=setInterval(()=>{if(!document.hidden&&snapshotDay!==today())refresh();},60000);
+    window.ScanOrders?.start();
   }
   function destroy(){
+    window.ScanOrders?.stop();
     if(!started)return;started=false;ready=false;generation++;clearInterval(refreshTimer);cancelAnimationFrame(metricFrame);metricFrame=0;cancelAnimationFrame(selectionFrame);selectionFrame=0;state.selectionOpen=false;
     clearModuleNotice();moduleLaunch=null;moduleOpener=null;
     unsubscribeStore?.();moduleResizeObserver?.disconnect();metricResizeObserver?.disconnect();currentView?.dispose?.();ordersView?.dispose?.();scene?.dispose();
