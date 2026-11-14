@@ -59,19 +59,23 @@ app.whenReady().then(async () => {
     await nav('#/bill?m=2026-11&c=' + await js('fx.customer.id'));
     const text = await js('document.querySelector(".bill-paper").textContent'); assert.ok(text.includes('0.001') && text.includes('0.125'));
     await js(`document.querySelector('[data-act=edit]').click();document.querySelector('[data-role=eTitle]').value='本月小数对账单';document.querySelector('[data-role=eNote]').value=${JSON.stringify('编辑后的结算条款：次月5号前付款\n请注明送货单号')};document.querySelector('[data-act=edit-save]').click();void 0`);
-    const file = await save('账单_小数对账客户_2026-11.xlsx', 'document.querySelector("[data-act=export]").click()');
+    const file = await save('账单_小数对账客户_2026-11.xlsx', 'document.querySelector("#desktop-reader [data-act=export]").click()');
     const xml = entry(file, 'xl/worksheets/sheet1.xml');
     assert.ok(xml.includes('本月小数对账单')); assert.ok(xml.includes('编辑后的结算条款：次月5号前付款')); assert.ok(xml.includes('请注明送货单号'));
     assert.ok(xml.includes('<v>0.001</v>') && xml.includes('<v>0.125</v>'));
     fs.copyFileSync(file, path.join(OUT, 'edited-bill.xlsx'));
     fs.writeFileSync(path.join(OUT, 'bill-note.png'), (await win.webContents.capturePage()).toPNG());
   });
-  await check('single and all monthly bills include default bill-wide notes', async () => {
+  await check('single and all monthly bills export from statistics without the retired default note', async () => {
     await js('Views.stats.state={range:"custom",from:"2026-11-01",to:"2026-11-30",billYm:"2026-11"};void 0'); await nav('#/stats');
     const single = await save('账单_小数对账客户_2026-11.xlsx', `exportBillXlsx('2026-11',fx.customer.id,'小数对账客户')`);
-    assert.ok(entry(single, 'xl/worksheets/sheet1.xml').includes('默认结算说明：次月5号前付款'));
+    const bill = entry(single, 'xl/worksheets/sheet1.xml');
+    for (const value of ['小数数量商品', '其他商品', '<v>0.001</v>', '<v>14.6</v>']) assert.ok(bill.includes(value), value);
     const all = await save('月度账单_2026-11.xlsx', 'document.querySelector("[data-act=bill-all]").click()');
-    for (const sheet of [1, 2]) assert.ok(entry(all, 'xl/worksheets/sheet' + sheet + '.xml').includes('默认结算说明：次月5号前付款'));
+    const sheets = [1, 2].map(sheet => entry(all, 'xl/worksheets/sheet' + sheet + '.xml'));
+    assert.ok(sheets[0].includes('<v>14.6</v>')); assert.ok(sheets[1].includes('<v>3</v>'));
+    // The fixture keeps a settings.note saved by an older version; it must stay out of every bill.
+    for (const xml of [bill, ...sheets]) assert.ok(!xml.includes('默认结算说明'));
   });
   await check('statistics CSV protects formulas and quotes embedded CR and multiline remarks', async () => {
     const file = await save('销售统计_2026-11-01.csv', 'document.querySelector("#statistics-view [data-act=export]").click()');

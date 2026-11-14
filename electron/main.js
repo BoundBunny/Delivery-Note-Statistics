@@ -163,7 +163,18 @@ function dataDir() {
 function backupDir() {
   if (process.env.DNS_TEST_BACKUP_DIR) return path.resolve(process.env.DNS_TEST_BACKUP_DIR);
   if (SMOKE && process.env.DNS_SMOKE_USER_DATA) return path.join(path.resolve(process.env.DNS_SMOKE_USER_DATA), BACKUP_DIR_NAME);
+  // 测试 / 预览脚本只把 userData 指到临时目录。它们的备份必须跟着留在那里：
+  // 否则空的临时数据目录会先从真实备份里「恢复」出业务数据，再把测试数据写回真实备份。
+  if (profileRedirected()) return path.join(app.getPath('userData'), BACKUP_DIR_NAME);
   return path.join(app.getPath('appData'), BACKUP_DIR_NAME);
+}
+// 只认测试钩子和未打包运行；安装版的备份位置永远不受影响。
+function profileRedirected() {
+  if (process.env.DNS_TEST_USER_DATA) return true;
+  if (app.isPackaged) return false;
+  try {
+    return path.relative(path.resolve(app.getPath('userData')), path.resolve(app.getPath('appData'), app.getName())) !== '';
+  } catch (_) { return false; }
 }
 // 早期版本把备份放在 userData 下；升级后如那边有数据，先搬过来
 function legacyBackupDir() {
@@ -451,7 +462,8 @@ function createWindow() {
       contextIsolation: false,
       nodeIntegration: false,
       sandbox: false,
-      spellcheck: false
+      spellcheck: false,
+      additionalArguments: process.argv.includes('--dev') ? ['--dns-dev'] : []
     }
   });
 
@@ -597,6 +609,8 @@ function storageInfo() {
     keys: store.keys().length,
     restored: store.status.restored,
     restoredFrom: store.status.restoredFrom,
+    repaired: store.status.repaired,
+    unrecovered: store.status.unrecovered,
     migrated: store.status.migrated,
     backups: store.listBackups().map(name => path.basename(name)),
     backupError: store.status.backupError,

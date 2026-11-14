@@ -268,3 +268,40 @@ test('关闭按钮行为偏好可记住并在下次生效，也能恢复为「�
   vm.runInContext("setClosePrefs({action:'hack', prompt:true})", context);
   assert.equal(readPrefs().closeAction, 'minimize');
 });
+
+test('previewing an order number does not consume it', () => {
+  const { store, values } = createStore();
+  const before = values.get('sd_v1_seqmap');
+  assert.equal(store.peekOrderNo('2026-11-08'), 'SD-20261108-001');
+  assert.equal(store.peekOrderNo('2026-11-08'), 'SD-20261108-001');
+  assert.equal(values.get('sd_v1_seqmap'), before);
+  assert.equal(store.nextOrderNo('2026-11-08'), 'SD-20261108-001');
+  assert.equal(store.peekOrderNo('2026-11-08'), 'SD-20261108-002');
+});
+
+test('test and preview profiles never share the real out-of-install backup directory', () => {
+  const os = require('node:os');
+  const appData = path.join(os.tmpdir(), 'dns-appdata'), normal = path.join(appData, 'songhuodan-desktop');
+  const temp = path.join(os.tmpdir(), 'dns-test-profile'), real = path.join(appData, '送货单统计数据备份');
+  const backupOf = ({ userData, isPackaged = false, env = {} }) => {
+    const paths = { appData, userData };
+    const electron = { ipcMain: { handle() {}, on() {} }, protocol: { registerSchemesAsPrivileged() {} },
+      app: { isPackaged, getName: () => 'songhuodan-desktop', getPath: name => paths[name], setPath(name, value) { paths[name] = value; },
+        requestSingleInstanceLock: () => true, whenReady: () => ({ then() {} }), on() {} } };
+    const context = vm.createContext({
+      require: name => name === 'electron' ? electron : name.startsWith('.') ? require(path.join(ROOT, name)) : require(name),
+      __dirname: ROOT, process: { on() {}, argv: [], env, platform: process.platform },
+      Buffer, TextDecoder, console, setTimeout, clearTimeout,
+    });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, 'main.js'), 'utf8'), context);
+    return vm.runInContext('backupDir()', context);
+  };
+  // A normal start keeps the backup outside both the install directory and the profile.
+  assert.equal(backupOf({ userData: normal }), real);
+  // Scripts that only redirect userData must not read or overwrite the real backup.
+  assert.equal(backupOf({ userData: temp }), path.join(temp, '送货单统计数据备份'));
+  assert.equal(backupOf({ userData: normal, isPackaged: true, env: { DNS_TEST_USER_DATA: temp } }), path.join(temp, '送货单统计数据备份'));
+  // Installed builds never move their backup because of an unusual profile path.
+  assert.equal(backupOf({ userData: temp, isPackaged: true }), real);
+  assert.equal(backupOf({ userData: temp, env: { DNS_TEST_BACKUP_DIR: path.join(temp, 'explicit') } }), path.join(temp, 'explicit'));
+});

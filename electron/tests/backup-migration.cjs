@@ -165,7 +165,7 @@ app.whenReady().then(async () => {
       await js('window.saved=[];window.prints=0;window.packageExports=0;Android.saveFile=async(...args)=>{saved.push(args);return {ok:true}};Android.exportBackup=async()=>{packageExports++;return {ok:true}};Android.printPdf=async()=>{prints++;return {ok:true}};void 0');
       await nav('#/settings');
       await js('for(const action of ["backup","exp-orders","exp-products","exp-customers"])document.querySelector("[data-act="+action+"]").click();void 0'); await pause(80);
-      await nav('#/orders'); await js('document.querySelector("#dispatch-collection [data-act=export]").click();void 0');
+      await nav('#/orders'); await js('document.querySelector("#dispatch-collection [data-act=export]")?.click();void 0');
       await nav('#/stats'); await js('document.querySelector("#statistics-view [data-act=export]").click();document.querySelector("#statistics-view [data-act=bill-all]").click();void 0');
       await js(`exportBillXlsx('2026-11',${JSON.stringify(expected.customerId)},'换机验收客户');void 0`);
       await nav('#/print?id=' + expected.orderId);

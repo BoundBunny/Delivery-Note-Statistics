@@ -191,3 +191,62 @@ test('改过的商品价格写进安装目录，重新打开应用依然生效',
   assert.equal(second.api.listCustomers()[0].name, '敖客');
   assert.equal(second.api.listOrders().length, 0);
 });
+
+/* ---------- 单个数据文件丢失 / 损坏：从备份回填，且好备份不被覆盖 ---------- */
+function seededDirs() {
+  const dirs = tempDirs();
+  const store = openStore(dirs);
+  store.set('sd_v1_settings', JSON.stringify({ company: '测试店' }));
+  store.set('sd_v1_customers', '[]');
+  store.set('sd_v1_orders', JSON.stringify([{ id: 'o1', total: 100 }]));
+  store.flushBackup();
+  return dirs;
+}
+
+test('只丢失单据文件时从备份回填，其它文件保持不变', () => {
+  const dirs = seededDirs();
+  fs.rmSync(path.join(dirs.dataDir, 'sd_v1_orders.json'));
+  const reopened = openStore(dirs);
+  assert.deepEqual(JSON.parse(reopened.get('sd_v1_orders')), [{ id: 'o1', total: 100 }]);
+  assert.deepEqual(reopened.status.repaired.map(r => [r.key, r.reason]), [['sd_v1_orders', 'missing']]);
+  assert.equal(reopened.status.restored, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dirs.dataDir, 'sd_v1_orders.json'), 'utf8')), [{ id: 'o1', total: 100 }]);
+});
+
+test('单据文件写坏时回填备份、保留损坏原文，且备份不被坏数据覆盖', () => {
+  const dirs = seededDirs();
+  fs.writeFileSync(path.join(dirs.dataDir, 'sd_v1_orders.json'), '[{"id":"o1","tot');
+  const reopened = openStore(dirs);
+  assert.deepEqual(JSON.parse(reopened.get('sd_v1_orders')), [{ id: 'o1', total: 100 }]);
+  assert.equal(reopened.status.repaired[0].reason, 'corrupt');
+  const kept = fs.readdirSync(dirs.dataDir).filter(name => name.includes('.corrupt-'));
+  assert.equal(kept.length, 1);
+  assert.equal(fs.readFileSync(path.join(dirs.dataDir, kept[0]), 'utf8'), '[{"id":"o1","tot');
+  assert.ok(!reopened.keys().some(key => key.includes('corrupt')), '损坏副本不能变成数据键');
+  assert.deepEqual(JSON.parse(openStore(dirs).get('sd_v1_orders')), [{ id: 'o1', total: 100 }]);
+});
+
+test('逐键镜像也坏了时，改用最新快照或按日快照', () => {
+  const dirs = seededDirs();
+  fs.writeFileSync(path.join(dirs.dataDir, 'sd_v1_orders.json'), '');
+  fs.writeFileSync(path.join(dirs.backupDir, 'sd_v1_orders.json'), '{{');
+  fs.writeFileSync(path.join(dirs.backupDir, 'data-latest.json'), 'broken');
+  const reopened = openStore(dirs);
+  assert.deepEqual(JSON.parse(reopened.get('sd_v1_orders')), [{ id: 'o1', total: 100 }]);
+  assert.match(reopened.status.repaired[0].from, /^data-\d{8}-\d{6}\.json$/);
+});
+
+test('损坏且没有任何可用备份时保留原文供抢救，坏数据不进入备份', () => {
+  const dirs = seededDirs();
+  for (const name of fs.readdirSync(dirs.backupDir)) fs.rmSync(path.join(dirs.backupDir, name), { recursive: true });
+  fs.writeFileSync(path.join(dirs.dataDir, 'sd_v1_orders.json'), 'garbage');
+  const reopened = openStore(dirs);
+  assert.equal(reopened.get('sd_v1_orders'), 'garbage');
+  assert.deepEqual(reopened.status.unrecovered, ['sd_v1_orders']);
+  assert.equal(fs.existsSync(path.join(dirs.backupDir, 'sd_v1_orders.json')), false);
+  assert.equal('sd_v1_orders' in JSON.parse(fs.readFileSync(path.join(dirs.backupDir, 'data-latest.json'), 'utf8')).data, false);
+  // 用户恢复有效数据后重新纳入备份
+  reopened.set('sd_v1_orders', '[]');
+  reopened.flushBackup();
+  assert.equal(fs.readFileSync(path.join(dirs.backupDir, 'sd_v1_orders.json'), 'utf8'), '[]');
+});

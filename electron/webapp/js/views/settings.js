@@ -51,7 +51,7 @@ Views.settings = {
       <div class="topbar"><h1>设置</h1></div>
       <div class="pad settings-content" data-role="body">
         <div class="settings-card">
-          ${row({ act: 'company-info', title: '公司/店铺信息', note: s.company || '抬头、联系方式、单据备注和账单标题', icon: 'company', tone: 'amber' })}
+          ${row({ act: 'company-info', title: '公司/店铺信息', note: s.company || '抬头、联系方式和账单标题', icon: 'company', tone: 'amber' })}
         </div>
         <section class="settings-section" aria-labelledby="settings-basic-title">
           <h2 class="settings-section-title" id="settings-basic-title">基础资料</h2>
@@ -183,7 +183,8 @@ Views.settings = {
         const b = storageInfo.backupDir || '';
         const extra = storageInfo.restored ? '（本次启动已从程序目录之外的备份自动恢复）' : '';
         const fb = storageInfo.fallback ? '（程序安装目录不可写，已自动改存到用户目录）' : '';
-        dataHint.textContent = '本机自动备份目录：' + b + '。保存后自动更新；换电脑请使用“备份到文件”。' + extra + fb;
+        dataHint.textContent = '本机自动备份目录：' + b + '。保存后自动更新；换电脑请使用“备份到文件”。' + extra + fb
+          + (storageInfo.repaired?.length ? '（本次启动发现 ' + storageInfo.repaired.length + ' 个数据文件丢失或损坏，已从备份回填，请核对最近的单据）' : '');
       }
     };
     if (window.Android && window.Android.getStorageInfo) {
@@ -371,7 +372,7 @@ Views.settings = {
         const rows = Store.ordersTable();
         const tq = sumQuantities(rows.map(r => r.qty));
         const ta = Math.round(rows.reduce((x, r) => x + (r.total || 0), 0) * 100) / 100;
-        const bytes = Xlsx.build([{ name: '送货单', title: '送货宝统计表', headers: ['日期', '单号', '客户', '件数', '金额(元)', '备注'], rows: rows.map(r => [r.date, r.no, r.customer, r.qty, r.total, r.note]), widths: [12, 16, 16, 8, 12, 30], footer: ['', '', '合计', tq, ta, ''] }]);
+        const bytes = Xlsx.build([{ name: '送货单', title: '送货宝统计表', headers: ['日期', '单号', '客户', '件数', '金额(元)'], rows: rows.map(r => [r.date, r.no, r.customer, r.qty, r.total]), widths: [12, 16, 16, 8, 12], footer: ['', '', '合计', tq, ta] }]);
         if ((await downloadBlob('送货宝.xlsx', xlsxBlob(bytes))).ok) toast('已导出 Excel');
         return;
       }
@@ -451,7 +452,7 @@ Views.companyInfo = {
       </div>
       <div class="pad">
         <div class="order-meta company-info-form">
-          <div class="field"><label class="lab" for="company-name">公司 / 店铺名称（打印抬头）</label><input id="company-name" data-s="company" value="${esc(settings.company)}"></div>
+          <div class="field"><label class="lab" for="company-name">公司 / 店铺名称（用于送货单水印）</label><input id="company-name" data-s="company" value="${esc(settings.company)}"></div>
           <div class="field-row">
             <div class="field"><label class="lab" for="company-phone">联系电话</label><input id="company-phone" data-s="phone" value="${esc(settings.phone)}"></div>
             <div class="field"><label class="lab" for="company-contact">联系人</label><input id="company-contact" data-s="contact" value="${esc(settings.contact)}"></div>

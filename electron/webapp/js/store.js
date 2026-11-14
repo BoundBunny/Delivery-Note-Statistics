@@ -736,7 +736,10 @@ const Store = (() => {
   }
 
   /* ---------- 单号 ---------- */
-  function nextOrderNo(date) {
+  // Preview for the order form. Numbers are only consumed when an order is saved,
+  // so opening or abandoning a draft leaves no gap in the sequence.
+  function peekOrderNo(date) { return nextOrderNo(date, true); }
+  function nextOrderNo(date, preview) {
     const day = date || todayStr();
     let s = Number.isSafeInteger(d.seqMap[day]) ? d.seqMap[day] : 0;
     // Older/partial backups may not contain seqMap. Existing numbers remain
@@ -746,8 +749,7 @@ const Store = (() => {
       if (m && m[1] === day.replace(/-/g, '')) s = Math.max(s, Number(m[2]));
     });
     if (!Number.isSafeInteger(s + 1)) throw new Error('单号序号超出可用范围');
-    d.seqMap[day] = s + 1;
-    persist();
+    if (!preview) { d.seqMap[day] = s + 1; persist(); }
     const prefix = (d.settings.noPrefix || 'SD').trim();
     const ymd = day.replace(/-/g, '');
     return prefix + '-' + ymd + '-' + pad3(s + 1);
@@ -795,9 +797,13 @@ const Store = (() => {
         if (product[field] === undefined) { if (baseline[field] !== undefined) unset.push(field); }
         else if (product[field] !== baseline[field]) changes[field] = product[field];
       });
-      // Definitions stay in the installed catalog. IDs keep historical orders
-      // and customer-specific prices linked when restoring on another PC.
-      entries.push({ key, id: product.id, createdAt: product.createdAt, changes, unset });
+      // IDs keep historical orders and customer-specific prices linked when
+      // restoring on another PC. The full record (image aside: bundled images
+      // stay in the app, custom ones travel through changes) lets a later app
+      // version with a renamed or repriced catalog still restore this backup.
+      const record = {};
+      PRODUCT_BACKUP_FIELDS.forEach(field => { if (field !== 'image' && product[field] !== undefined) record[field] = product[field]; });
+      entries.push({ key, id: product.id, createdAt: product.createdAt, changes, unset, record });
     });
     return JSON.stringify({
       app: 'songhuodan',
@@ -832,10 +838,23 @@ const Store = (() => {
             || !entry.id || !entry.changes || typeof entry.changes !== 'object' || Array.isArray(entry.changes)
             || !Array.isArray(entry.unset) || !Object.keys(entry.changes).every(key => PRODUCT_BACKUP_FIELDS.includes(key))
             || !entry.unset.every(key => PRODUCT_BACKUP_FIELDS.includes(key))) throw new Error('初始化商品关联数据不正确，已取消恢复');
-        if (!catalog.has(entry.key)) throw new Error('本机初始化商品目录与备份不兼容，请使用相同或兼容版本恢复');
-        const product = { ...catalog.get(entry.key), ...entry.changes, id: entry.id, builtinKey: entry.key };
+        const baseline = catalog.get(entry.key);
+        let product;
+        if (entry.record != null) {
+          if (typeof entry.record !== 'object' || Array.isArray(entry.record)
+              || !Object.keys(entry.record).every(key => key !== 'image' && PRODUCT_BACKUP_FIELDS.includes(key))) throw new Error('初始化商品关联数据不正确，已取消恢复');
+          // The backed-up record is authoritative; the installed catalog only supplies the bundled image.
+          product = { ...entry.record, id: entry.id };
+          const image = owns(entry.changes, 'image') ? entry.changes.image
+            : entry.unset.includes('image') ? '' : (baseline && baseline.image) || bundledImageFor(product.name);
+          if (image) product.image = image;
+          if (baseline) product.builtinKey = entry.key; else product.origin = 'custom';
+        } else {
+          if (!baseline) throw new Error('本机初始化商品目录与备份不兼容，请使用相同或兼容版本恢复');
+          product = { ...baseline, ...entry.changes, id: entry.id, builtinKey: entry.key };
+          entry.unset.forEach(key => { delete product[key]; });
+        }
         if (entry.createdAt != null) product.createdAt = entry.createdAt;
-        entry.unset.forEach(key => { delete product[key]; });
         return product;
       });
       src = { ...src, settings: { ...src.settings, imageDir: '' }, products: [...src.products, ...builtins] };
@@ -932,8 +951,11 @@ const Store = (() => {
         if (!isObj(it) || typeof it.name !== 'string' || !it.name.trim()
             || !Number.isFinite(it.qty) || !Number.isFinite(it.price) || !Number.isFinite(it.amount)) fail('单据明细');
         textFields(it, ['pid', 'spec', 'unit', 'remark'], '单据明细');
-        const cents = Math.round(it.qty * it.price * 100);
-        if (it.qty <= 0 || it.price < 0 || it.amount < 0 || !Number.isSafeInteger(cents) || Math.abs(cents-Math.round(it.amount*100)) > 0) fail('单据明细金额');
+        // Orders saved before exact decimal rounding may hold the former
+        // floating-point result; they stay readable rather than locking the store.
+        const cents = amountCents(it.qty, it.price), stored = Math.round(it.amount * 100);
+        if (it.qty <= 0 || it.price < 0 || it.amount < 0 || !Number.isSafeInteger(cents)
+            || (stored !== cents && stored !== Math.round(it.qty * it.price * 100))) fail('单据明细金额');
       });
       const cents = o.items.reduce((n,it)=>n+Math.round(it.amount*100),0);
       if (!o.items.length || o.total < 0 || !Number.isSafeInteger(cents) || cents !== Math.round(o.total*100)) fail('单据合计金额');
@@ -1216,7 +1238,6 @@ const Store = (() => {
       customer: o.customer ? o.customer.name : '散客',
       qty: sumQuantities(o.items.map(i => i.qty)),
       total: o.total || 0,
-      note: o.note || '',
     }));
   }
 
@@ -1240,7 +1261,7 @@ const Store = (() => {
     listCustomers, getCustomer, upsertCustomer, deleteCustomer, countCustomerOrders,
     listProducts, getProduct, upsertProduct, assertProductBarcode, deleteProduct, restoreProduct, productHasOrders,
     listOrders, getOrder, addOrder, updateOrder, deleteOrder, orderIndex, siblingOrder,
-    nextOrderNo, reclaimNo,
+    nextOrderNo, peekOrderNo, reclaimNo,
     getLastPrice, setLastPrice,
     exportJSON, importJSON, assertExportable,
     ordersCSV, ordersSheet, customersCSV, productsCSV, tableCSV,

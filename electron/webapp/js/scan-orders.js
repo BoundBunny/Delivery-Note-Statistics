@@ -3,7 +3,9 @@
 window.ScanOrders = (() => {
   const PREFS = 'sd_v1_scanner_preferences_v2';
   let model, storage, prefs = { enabled: true, mode: 'auto' }, started = false, timer, view, confirmation, settingsMask;
-  let buffer = '', lastKey = 0, lastScanEnd = 0, framed = false, previousPaused = false, inerted = [], unsubscribe;
+  let countdownPaused = false, remainingAtClose = null;
+  let buffer = '', lastKey = 0, lastScanEnd = 0, framed = false, previousPaused = false, inerted = [], unsubscribe, simulationIndex = 0;
+  const SIMULATION_CODES = ['6901028075763', '6901028075770', '6901028118170', '6901028075015'];
   const editable = target => !!target?.closest('input,textarea,select,[contenteditable="true"]');
   function ensure() {
     if (model) return model;
@@ -18,7 +20,7 @@ window.ScanOrders = (() => {
   function available() {
     if (!prefs.enabled || ensure().damaged || Store.recoveryState().blocked || document.querySelector('.close-prompt')) return false;
     if (draft() && (confirmation || view?.isConnected)) return true;
-    return ['orders', 'stats', 'detail'].includes(window.DNSDesktop?.mode) && !otherModal();
+    return (['orders', 'stats', 'detail'].includes(window.DNSDesktop?.mode) || location.hash === '#/order/scan') && !otherModal();
   }
   function guarded(action) {
     try { const result = action(); update(); return result; }
@@ -35,6 +37,7 @@ window.ScanOrders = (() => {
     } catch (_) { /* The visible receipt is always available if audio is disabled. */ }
   }
   function open() {
+    if (countdownPaused && draft() && current().phase === 'scanning') resumeCountdown();
     return window.DNSDesktop.navigate('#/order/scan');
   }
   function receive(code) {
@@ -47,6 +50,13 @@ window.ScanOrders = (() => {
     }
     if (!view?.isConnected) open();
     else focusScan();
+  }
+  function simulateOneScan() {
+    const all = Store.listProducts('', { includeArchived: true });
+    const candidates = SIMULATION_CODES.map(code => all.find(product => String(product.barcode || '').trim() === code)).filter(Boolean);
+    const product = candidates.length ? candidates[simulationIndex++ % candidates.length] : all.find(item => String(item.barcode || '').trim());
+    if (!product) { toast('没有可模拟的条码商品', true); return; }
+    receive(product.barcode);
   }
   function resetInput() { buffer = ''; framed = false; lastKey = 0; }
   function keydown(event) {
@@ -217,7 +227,7 @@ window.ScanOrders = (() => {
       } catch (_) { toast('扫码设置保存失败，请检查存储空间', true); }
     });
   }
-  const total = () => (draft()?.items || []).reduce((sum, item) => sum + Math.round(Number(item.qty) * Number(item.price) * 100), 0) / 100;
+  const total = () => (draft()?.items || []).reduce((sum, item) => sum + amountCents(item.qty, item.price), 0) / 100;
   function closeConfirmation() { if (confirmation) { confirmation.remove(); confirmation = null; lockBackground(false); } }
   function showConfirmation() {
     if (!draft() || current().phase !== 'confirm' || otherModal()) return;
@@ -228,15 +238,38 @@ window.ScanOrders = (() => {
       document.getElementById('modal-root').append(confirmation); lockBackground(true);
     }
     const focus = document.activeElement?.dataset?.scanAction;
-    confirmation.innerHTML = `<section class="scan-dialog scan-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="scan-confirm-title"><span class="scan-eyebrow">扫码送货单 · 待确认</span><h2 id="scan-confirm-title">请确认并保存本单</h2><button type="button" class="scan-customer-button" data-scan-action="customer">客户：${esc(d.customer?.name || (d.walkIn ? '散客' : '尚未选择，点击选择'))}</button><div class="scan-summary"><span>${d.items.length} 种商品 · ${esc(fmtNum(sumQuantities(d.items.map(item => item.qty))))} 件</span><strong>¥${fmtMoney(total())}</strong></div>${d.issues.length ? `<p class="scan-error">有 ${d.issues.length} 条待处理扫码，请返回处理后保存。</p>` : ''}${queued ? `<div class="scan-queue-notice" role="status">确认期间收到 ${queued} 次新扫码，已暂存。请选择补入本单，或保存本单后用于下一单。</div>` : '<p class="scan-muted">本单已保留。确认前不会自动保存，也不会自动开下一单。</p>'}<details><summary>查看本单明细</summary><ul class="scan-review-items">${d.items.map(item => `<li><span>${esc(item.name)} ${esc(item.spec)}</span><span>${esc(fmtNum(item.qty))}${esc(item.unit)} × ¥${esc(fmtPrice(item.price))}</span></li>`).join('')}</ul></details><p class="scan-error" data-confirm-error>${esc(model.error)}</p><div class="scan-actions"><button type="button" class="btn btn-primary scan-save-button" data-scan-action="save">${d.customer || d.walkIn ? (queued ? '保存本单，再开下一单' : '保存单据') : '选择客户后保存'}</button><button type="button" class="btn btn-ghost" data-scan-action="continue">${queued ? '补入本单，继续扫描' : '继续本单'}</button></div><div class="scan-confirm-footer"><button type="button" class="scan-link" data-scan-action="edit">返回修改 / 处理异常</button><button type="button" class="scan-link" data-scan-action="discard">放弃本单…</button></div></section>`;
+    confirmation.innerHTML = `<section class="scan-dialog scan-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="scan-confirm-title"><h2 id="scan-confirm-title">请确认并保存本单</h2><div class="cust-pick scan-confirm-cust" data-scan-action="customer" role="button" tabindex="0" aria-label="选择客户"><span class="cp-ic"><svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0"/></svg></span><div class="cp-main"><div class="cp-name">${d.customer ? esc(d.customer.name) : (d.walkIn ? '散客' : '选择客户（可选）')}</div><div class="cp-sub">${d.customer ? esc([d.customer.phone, d.customer.address].filter(Boolean).join(' · ')) : (d.walkIn ? '本单按散客结算' : '点击选择客户')}</div></div><button type="button" class="cust-clear${(d.customer || d.walkIn) ? '' : ' hidden'}" data-scan-action="clear-customer" aria-label="取消选择客户" title="取消选择客户"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6"/><path d="M18.5 6l-1 13.2A1.8 1.8 0 0 1 15.7 21H8.3a1.8 1.8 0 0 1-1.8-1.8L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button><span class="cp-arrow"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></span></div><div class="scan-summary"><span>${d.items.length} 种商品 · ${esc(fmtNum(sumQuantities(d.items.map(item => item.qty))))} 件</span><strong>¥${fmtMoney(total())}</strong></div>${d.issues.length ? `<p class="scan-error">有 ${d.issues.length} 条待处理扫码，请返回处理后保存。</p>` : ''}${queued ? `<div class="scan-queue-notice" role="status">确认期间收到 ${queued} 次新扫码，已暂存。请选择补入本单，或保存本单后用于下一单。</div>` : ''}<div class="scan-review-wrap" tabindex="0"><ul class="scan-review-items">${d.items.map(item => `<li><span>${esc(item.name)} ${esc(item.spec)}</span><span>${esc(fmtNum(item.qty))}${esc(item.unit)} × ¥${esc(fmtPrice(item.price))}</span></li>`).join('')}</ul><div class="scan-scrollbar" aria-hidden="true"><span></span></div></div><p class="scan-error" data-confirm-error>${esc(model.error)}</p><div class="scan-actions"><button type="button" class="btn btn-primary scan-save-button" data-scan-action="save">${queued ? '保存本单，再开下一单' : '保存单据'}</button><button type="button" class="btn btn-ghost" data-scan-action="continue">${queued ? '补入本单，继续扫描' : '继续本单'}</button></div><div class="scan-confirm-footer"><button type="button" class="scan-link" data-scan-action="discard">放弃本单…</button></div></section>`;
     const restore = focus ? confirmation.querySelector('[data-scan-action="' + focus + '"]') : confirmation.querySelector('[data-scan-action="continue"]'); restore?.focus({ preventScroll: true });
+    syncReviewScrollbar();
+  }
+  function closePrompt() {
+    if (!draft()) return Promise.resolve('close');
+    pauseCountdown();
+    return new Promise(resolve => {
+      const mask = modal('关闭扫码单？', '<button type="button" class="scan-exit-cancel" data-choice="cancel" aria-label="取消" title="取消">×</button><p class="scan-muted">当前单据尚未保存。可保存草稿，稍后从「恢复扫码单」继续；或撤销这张单据。</p><div class="scan-actions"><button type="button" class="btn btn-danger" data-choice="discard">撤销单据</button><button type="button" class="btn btn-primary" data-choice="save-draft">保存草稿</button></div>');
+      mask.querySelector('section')?.classList.add('scan-exit-dialog');
+      let settled = false;
+      const done = choice => {
+        if (settled) return;
+        settled = true; mask.close();
+        if (choice === 'cancel') { resumeCountdown(); resolve(null); }
+        else resolve(choice);
+      };
+      mask.addEventListener('click', event => {
+        const button = event.target.closest('[data-choice]'); if (!button) return;
+        if (button.dataset.choice === 'discard') { mask.close(); guarded(() => ensure().discard()); countdownPaused = false; remainingAtClose = null; resolve('discard'); return; }
+        done(button.dataset.choice);
+      });
+    });
   }
   function save() {
-    if (!draft()?.customer && !draft()?.walkIn) { selectCustomer(); return; }
     try {
-      const saved = model.save(current().queued.length > 0);
+      const next = current().queued.length > 0;
+      const saved = model.save(next);
       closeConfirmation();
       toast(saved?.no ? '已保存 ' + saved.no + ' · ' + (saved.customer?.name || '散客') + ' · ¥' + fmtMoney(saved.total) : '已恢复保存状态'); feedback(true);
+      // 与手动新建送货单一致：正常保存后进入单据详情；有暂存扫码要接着开下一单时留在扫码页。
+      if (saved?.id && !next) { location.replace('#/order/view?id=' + saved.id); return; }
       update(); focusScan();
     } catch (error) { toast(error.message, true); update(); const label = confirmation?.querySelector('[data-confirm-error]'); if (label) label.textContent = error.message; }
   }
@@ -248,6 +281,8 @@ window.ScanOrders = (() => {
       if (invalid) { invalid.reportValidity(); toast('请先修正标红的数量或单价，再结束本单', true); return; }
     }
     if (action === 'customer') selectCustomer();
+    else if (action === 'clear-customer') guarded(() => model.setCustomer(null, false));
+    else if (action === 'simulate-scan') simulateOneScan();
     else if (action === 'settings') configure();
     else if (action === 'finish') guarded(() => model.confirm());
     else if (action === 'save') save();
@@ -283,8 +318,40 @@ window.ScanOrders = (() => {
   function paint() {
     if (!view) return;
     const d = draft();
-    view.innerHTML = `<div class="pad scan-order-content"><div class="scan-heading"><div><span class="scan-eyebrow">扫码接单</span><h1>${d ? '正在记录新的送货单' : '等待第一件商品'}</h1></div><button type="button" class="btn btn-ghost btn-sm" data-scan-action="settings">扫码设置</button></div><p class="scan-muted">本地草稿随扫描保存，停止开单操作 60 秒后提醒确认。软件须保持在前台。</p>${model.error ? `<div class="scan-error-box" role="alert"><p>${esc(model.error)}</p><button class="btn btn-ghost" data-scan-action="retry" ${model.damaged ? 'disabled' : ''}>重试写入 / 恢复状态</button><button class="btn btn-ghost" data-scan-action="export">导出当前草稿</button></div>` : ''}<label class="scan-entry">扫描商品条码<input data-scan-input autocomplete="off" spellcheck="false" placeholder="对准扫码枪扫描，或输入条码后按回车" ${prefs.enabled && !model.damaged ? '' : 'disabled'}></label><div class="scan-live-status" data-scan-countdown role="status"></div>${d ? `<div class="scan-order-toolbar"><button class="scan-customer-button" data-scan-action="customer">客户：${esc(d.customer?.name || (d.walkIn ? '散客' : '尚未选择'))}</button><span>${esc(d.date)} · 保存时生成单号</span><button type="button" class="btn btn-ghost btn-sm" data-scan-action="undo" ${model.canUndo ? '' : 'disabled'}>撤销上一扫</button></div>${current().queued.length ? `<div class="scan-queue-notice">另有 ${current().queued.length} 次扫码待确认归属。<button class="scan-link" data-scan-action="queue">明确补入本单</button></div>` : ''}<div class="scan-table-wrap"><table class="scan-items-table"><thead><tr><th>商品 / 规格</th><th>数量</th><th>单价</th><th>金额</th><th></th></tr></thead><tbody>${d.items.map(item => `<tr><td><b>${esc(item.name)}</b><span>${esc([item.spec, item.unit, item.barcode].filter(Boolean).join(' · '))}</span>${item.needsPrice ? '<button type="button" class="scan-link scan-error" data-scan-action="confirm-price" data-line-id="' + esc(item.lineId) + '">缺少默认价，确认当前单价</button>' : ''}</td><td><input aria-label="${esc(item.name)}数量" type="number" min="0" step="any" data-line-id="${esc(item.lineId)}" data-line-field="qty" value="${esc(item.qty)}"></td><td><input aria-label="${esc(item.name)}单价" type="number" min="0" step="any" data-line-id="${esc(item.lineId)}" data-line-field="price" value="${esc(item.price)}"></td><td data-line-amount="${esc(item.lineId)}">¥${fmtMoney(item.amount)}</td><td><button type="button" class="scan-link" data-scan-action="remove-line" data-line-id="${esc(item.lineId)}">移除</button></td></tr>`).join('') || '<tr><td colspan="5" class="scan-empty">等待扫描商品；未登记条码会保留在下方。</td></tr>'}</tbody></table></div>${d.issues.length ? `<section class="scan-issues" aria-label="待处理扫码"><h2>待处理扫码 ${d.issues.length}</h2>${d.issues.map(record => `<div class="scan-issue"><div><b>${esc(record.code)}</b><span>${esc(record.reason)}</span></div><button class="btn btn-ghost btn-sm" data-scan-action="resolve" data-issue-id="${esc(record.id)}">处理</button><button class="scan-link" data-scan-action="remove-issue" data-issue-id="${esc(record.id)}">移除</button></div>`).join('')}</section>` : ''}<div class="scan-bottom"><strong data-scan-total>合计 ¥${fmtMoney(total())}</strong><button class="btn btn-primary" data-scan-action="finish">提前结束本单</button></div><div class="scan-bottom-links"><button class="scan-link" data-scan-action="home">保留草稿，返回首页</button><button class="scan-link" data-scan-action="discard">放弃本单…</button></div>` : '<div class="scan-empty"><b>扫一下，就开始记货</b><p>同一商品重复扫描会累加数量。没有登记的条码会保留，处理完再保存。</p><button class="btn btn-ghost" data-scan-action="home">返回送货单首页</button></div>'}</div>`;
+    view.innerHTML = `<div class="pad scan-order-content"><div class="scan-heading scan-heading--actions"><button type="button" class="btn btn-ghost btn-sm" data-scan-action="settings">扫码设置</button></div>${window.__DNS_DEV ? '<div class="scan-debug-row"><button type="button" class="scan-debug-scan" data-scan-action="simulate-scan">模拟扫码（调试）</button></div>' : ''}${model.error ? `<div class="scan-error-box" role="alert"><p>${esc(model.error)}</p><button class="btn btn-ghost" data-scan-action="retry" ${model.damaged ? 'disabled' : ''}>重试写入 / 恢复状态</button><button class="btn btn-ghost" data-scan-action="export">导出当前草稿</button></div>` : ''}<label class="scan-entry">扫描商品条码<input data-scan-input autocomplete="off" spellcheck="false" placeholder="对准扫码枪扫描，或输入条码后按回车" ${prefs.enabled && !model.damaged ? '' : 'disabled'}></label><div class="scan-live-status" data-scan-countdown role="status"></div>${d ? `${current().queued.length ? `<div class="scan-queue-notice">另有 ${current().queued.length} 次扫码待确认归属。<button class="scan-link" data-scan-action="queue">明确补入本单</button></div>` : ''}<div class="scan-table-head"><span>本单明细${d.items.length ? ' · ' + d.items.length + ' 种' : ''}</span><button type="button" class="scan-undo-btn" data-scan-action="undo" ${model.canUndo ? '' : 'disabled'}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 1 1 0 11H8"/></svg>撤销上一扫</button></div><div class="scan-table-shell"><div class="scan-table-wrap"><table class="scan-items-table"><thead><tr><th>商品 / 规格</th><th>数量</th><th>单价</th><th>金额</th><th class="scan-col-actions">操作</th></tr></thead><tbody>${d.items.map(item => `<tr><td><b>${esc(item.name)}</b><span>${esc([item.spec, item.unit, item.barcode].filter(Boolean).join(' · '))}</span>${item.needsPrice ? '<button type="button" class="scan-link scan-error" data-scan-action="confirm-price" data-line-id="' + esc(item.lineId) + '">缺少默认价，确认当前单价</button>' : ''}</td><td><input aria-label="${esc(item.name)}数量" type="number" min="0" step="any" data-line-id="${esc(item.lineId)}" data-line-field="qty" value="${esc(item.qty)}"></td><td><input aria-label="${esc(item.name)}单价" type="number" min="0" step="any" data-line-id="${esc(item.lineId)}" data-line-field="price" value="${esc(item.price)}"></td><td data-line-amount="${esc(item.lineId)}">¥${fmtMoney(item.amount)}</td><td class="scan-col-actions"><button type="button" class="scan-row-remove" data-scan-action="remove-line" data-line-id="${esc(item.lineId)}" title="移除整行" aria-label="移除 ${esc(item.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4.5A1.5 1.5 0 0 1 9.5 3h5A1.5 1.5 0 0 1 16 4.5V6"/><path d="M18.5 6l-1 13.2A1.8 1.8 0 0 1 15.7 21H8.3a1.8 1.8 0 0 1-1.8-1.8L5.5 6"/><path d="M10 10.5v6M14 10.5v6"/></svg></button></td></tr>`).join('') || '<tr><td colspan="5" class="scan-empty">等待扫描商品；未登记条码会保留在下方。</td></tr>'}</tbody></table></div><div class="scan-scrollbar" aria-hidden="true"><span></span></div></div>${d.issues.length ? `<section class="scan-issues" aria-label="待处理扫码"><h2>待处理扫码 ${d.issues.length}</h2>${d.issues.map(record => `<div class="scan-issue"><div><b>${esc(record.code)}</b><span>${esc(record.reason)}</span></div><button class="btn btn-ghost btn-sm" data-scan-action="resolve" data-issue-id="${esc(record.id)}">处理</button><button class="scan-link" data-scan-action="remove-issue" data-issue-id="${esc(record.id)}">移除</button></div>`).join('')}</section>` : ''}<div class="scan-bottom"><strong data-scan-total>合计 ¥${fmtMoney(total())}</strong><button class="btn btn-primary" data-scan-action="finish">提前结束本单</button></div>` : '<div class="scan-empty"><b>扫一下，就开始记货</b><p>同一商品重复扫描会累加数量。没有登记的条码会保留，处理完再保存。</p><button class="btn btn-ghost" data-scan-action="home">返回送货单首页</button></div>'}</div>`;
     updateTotals();
+    syncScrollbar();
+  }
+  function syncScrollbar() {
+    const wrap = view?.querySelector('.scan-table-wrap'), bar = view?.querySelector('.scan-scrollbar');
+    if (!wrap || !bar) return;
+    const thumb = bar.querySelector('span');
+    const paintBar = () => {
+      const overflow = wrap.scrollHeight - wrap.clientHeight;
+      if (overflow <= 1) { bar.hidden = true; return; }
+      bar.hidden = false;
+      const h = Math.max(24, Math.round(wrap.clientHeight * wrap.clientHeight / wrap.scrollHeight));
+      const top = Math.round((wrap.scrollTop / overflow) * (wrap.clientHeight - h));
+      thumb.style.height = h + 'px'; thumb.style.top = top + 'px';
+    };
+    wrap.addEventListener('scroll', paintBar, { passive: true });
+    requestAnimationFrame(paintBar);
+  }
+  function syncReviewScrollbar() {
+    const wrap = confirmation?.querySelector('.scan-review-wrap'), list = confirmation?.querySelector('.scan-review-items');
+    if (!wrap || !list) return;
+    const bar = wrap.querySelector('.scan-scrollbar'), thumb = bar.querySelector('span');
+    const paintBar = () => {
+      const overflow = list.scrollHeight - list.clientHeight;
+      if (overflow <= 1 || list.clientHeight === 0) { bar.hidden = true; return; }
+      bar.hidden = false;
+      const h = Math.max(18, Math.round(list.clientHeight * list.clientHeight / list.scrollHeight));
+      const top = Math.round((list.scrollTop / overflow) * (list.clientHeight - h));
+      thumb.style.height = h + 'px'; thumb.style.top = top + 'px';
+    };
+    list.addEventListener('scroll', paintBar, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(paintBar).observe(list);
+    requestAnimationFrame(paintBar);
   }
   function updateTotals() {
     const element = view?.querySelector('[data-scan-total]'); if (element) element.textContent = '合计 ¥' + fmtMoney(total());
@@ -301,10 +368,25 @@ window.ScanOrders = (() => {
       button.dataset.active = String(!!draft());
     }
     const countdown = view?.querySelector('[data-scan-countdown]');
-    if (countdown) countdown.textContent = !prefs.enabled ? '扫码接单已暂停，可在扫码设置中开启。' : model.error ? '请先处理草稿存储异常。' : !draft() ? '等待扫描第一件商品' : current().phase === 'confirm' ? '请确认当前单据' : otherModal() || (editable(document.activeElement) && !document.activeElement.matches('[data-scan-input]')) ? '正在处理本单，计时已暂停' : '草稿已保留 · ' + Math.max(0, Math.ceil((60000 - (Date.now() - current().lastActivity)) / 1000)) + ' 秒后提醒保存';
+    if (countdown) countdown.textContent = countdownPaused ? '计时已暂停 · 剩余 ' + Math.max(0, Math.ceil((remainingAtClose || 0) / 1000)) + ' 秒' : !prefs.enabled ? '扫码接单已暂停，可在扫码设置中开启。' : model.error ? '请先处理草稿存储异常。' : !draft() ? '等待扫描第一件商品' : current().phase === 'confirm' ? '请确认当前单据' : otherModal() || (editable(document.activeElement) && !document.activeElement.matches('[data-scan-input]')) ? '正在处理本单，计时已暂停' : '草稿已保留 · ' + Math.max(0, Math.ceil((60000 - (Date.now() - current().lastActivity)) / 1000)) + ' 秒后提醒保存';
+  }
+  function pauseCountdown() {
+    if (!draft() || current().phase !== 'scanning') { remainingAtClose = null; return; }
+    // 老板关闭扫码页时暂停；无论当时剩多少，取消或保存草稿后都重新从 60 秒开始。
+    remainingAtClose = 60000;
+    countdownPaused = true;
+    status();
+  }
+  function resumeCountdown() {
+    if (!countdownPaused) return;
+    if (draft() && current().phase === 'scanning' && remainingAtClose != null) {
+      current().lastActivity = Date.now() - (60000 - remainingAtClose);
+    }
+    countdownPaused = false; remainingAtClose = null; status();
   }
   function tick() {
     if (!started) return;
+    if (countdownPaused) { status(); return; }
     const interacting = otherModal() || !!document.querySelector('[data-line-field]:focus,.scan-order-view .scan-invalid') || !prefs.enabled;
     const paused = interacting || document.hidden;
     if (previousPaused && !interacting && draft() && current().phase === 'scanning') guarded(() => model.activity());
@@ -318,6 +400,12 @@ window.ScanOrders = (() => {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'scanner-launch'; button.dataset.scannerLaunch = ''; button.title = '扫码接单 / 恢复扫码草稿';
     button.addEventListener('click', () => { if (draft() || model.error) open(); else configure(); });
     document.querySelector('#desktop-app .new-order-button')?.before(button);
+    if (window.__DNS_DEV) {
+      const debug = document.createElement('button');
+      debug.type = 'button'; debug.className = 'scanner-launch scan-debug-launch'; debug.dataset.scanDebugLaunch = ''; debug.title = '模拟扫码（调试，仅开发模式）'; debug.textContent = '模拟扫码（调试）';
+      debug.addEventListener('click', () => { if (!view?.isConnected) open(); setTimeout(simulateOneScan, 320); });
+      button.after(debug);
+    }
     document.addEventListener('keydown', keydown, true);
     timer = setInterval(tick, 250);
     unsubscribe = Store.subscribe(() => { status(); });
@@ -334,5 +422,5 @@ window.ScanOrders = (() => {
     catch (_) { prefs.enabled = false; toast('业务数据已替换，但旧扫码草稿未能清理，已暂停扫码接单。请检查存储空间。', true); }
   }
   window.Views.scanOrder = { render: renderView };
-  return { start, stop, configure, open, clearForReplacement, get session() { return ensure(); }, get prefs() { return { ...prefs }; }, blocksNavigation(hash) { return !!draft() && current().phase === 'confirm' && hash !== '#/order/scan'; } };
+  return { start, stop, configure, open, clearForReplacement, promptClose: closePrompt, get session() { return ensure(); }, get prefs() { return { ...prefs }; }, blocksNavigation(hash) { return !!draft() && current().phase === 'confirm' && hash !== '#/order/scan'; } };
 })();

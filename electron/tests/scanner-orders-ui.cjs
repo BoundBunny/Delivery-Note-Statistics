@@ -50,8 +50,15 @@ app.whenReady().then(async () => {
     await js(`(()=>{const input=document.querySelector('[data-line-field="price"]');input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})();void 0`);
     await js(`(()=>{const input=document.querySelector('[data-line-field="qty"]');input.focus();input.value='4';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})();void 0`);
     assert.equal(await js('ScanOrders.session.state.draft.items[0].qty'), '4');
-    await click('[data-scan-action="customer"]'); await click('[data-scan-customer]');
+    await click('[data-scan-action="finish"]'); await pause(200);
+    await click('.scan-confirm-mask [data-scan-action="customer"]'); await click('[data-scan-customer]'); await pause(150);
     assert.equal(await js('ScanOrders.session.state.draft.customer.id === scanFixture.customer.id'), true);
+    await click('.scan-confirm-mask .cust-clear'); await pause(150);
+    assert.equal(await js('ScanOrders.session.state.draft.customer === null && ScanOrders.session.state.draft.walkIn === false'), true);
+    assert.equal(await js('document.querySelector(".scan-confirm-cust .cp-name").textContent.includes("选择客户")'), true);
+    await click('.scan-confirm-mask [data-scan-action="customer"]'); await click('[data-scan-customer]'); await pause(150);
+    assert.equal(await js('ScanOrders.session.state.draft.customer.id === scanFixture.customer.id'), true);
+    await click('.scan-confirm-mask [data-scan-action="continue"]'); await pause(150);
   });
   await check(quick ? 'elapsed inactivity deadline opens a modal that locks background navigation' : 'real 60-second inactivity opens a modal that locks background navigation', async () => {
     await js('document.querySelector("[data-scan-input]").focus();void 0');
@@ -117,9 +124,15 @@ app.whenReady().then(async () => {
     await click('.scan-confirm-mask [data-scan-action="continue"]');
     assert.equal(await js('ScanOrders.session.state.draft.items.length'), count); assert.equal(await js('document.querySelector("#desktop-app").inert'), false);
   });
-  await check('manual order entry and version display remain available after saving the scanner session', async () => {
-    await click('[data-scan-action="customer"]'); await click('[data-walk-in]'); await click('[data-scan-action="finish"]'); await click('.scan-confirm-mask [data-scan-action="save"]');
+  await check('saving without choosing a customer defaults to walk-in 散客', async () => {
+    await js('ScanOrders.session.setCustomer(null, false);void 0');
+    await click('[data-scan-action="finish"]'); await pause(200);
+    assert.equal(await js('ScanOrders.session.state.draft.customer === null && ScanOrders.session.state.draft.walkIn === false'), true);
+    await click('.scan-confirm-mask [data-scan-action="save"]');
+    await wait('location.hash.startsWith("#/order/view?id=")');
+    await screenshot('06-saved-detail');
     assert.equal(await js('ScanOrders.session.state.draft'), null); assert.equal(await js('Store.listOrders().length'), 2);
+    assert.equal(await js('Store.listOrders()[0].customer === null'), true);
     await js('DNSDesktop.navigate("#/order/new");void 0'); await wait('!!document.querySelector("#view-container .view")?.__draft');
     assert.equal(await js('document.querySelector("#view-container .view").__draft.items.length'), 0);
     await js('document.querySelector("#view-container .view").__saved=true;DNSDesktop.navigate("#/settings");void 0'); await pause(100);

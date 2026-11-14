@@ -26,6 +26,18 @@ const WINDOW_STATE_FILE = 'window-state.json';
 // 业务数据键前缀（设置/客户/商品/单据/一客一价/序号）。
 // 判断「安装目录是否为空」只看这些键：界面偏好等非业务文件不该影响恢复判断。
 const BUSINESS_PREFIX = 'sd_v1_';
+// 核心业务键：应用首次保存后六个文件都会存在（清空数据写入的是空集合，不会删文件），
+// 因此其中某个文件缺失或无法解析只可能是磁盘/误删问题，可以安全地从备份回填。
+const CORE_SHAPES = {
+  sd_v1_settings: 'object', sd_v1_customers: 'array', sd_v1_products: 'array',
+  sd_v1_orders: 'array', sd_v1_lastprices: 'object', sd_v1_seqmap: 'object',
+};
+function validCore(key, text) {
+  if (typeof text !== 'string') return false;
+  let value;
+  try { value = JSON.parse(text); } catch (_) { return false; }
+  return CORE_SHAPES[key] === 'array' ? Array.isArray(value) : !!value && typeof value === 'object' && !Array.isArray(value);
+}
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.avif']);
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -64,13 +76,16 @@ function createDataStore(options) {
   let lastDatedDay = '';
   let backupTimer = null;
   let backupDirty = false;
+  // 主文件已损坏且备份里也找不到可用副本的键：保留原文供抢救导出，但绝不写进备份
+  const quarantined = new Set();
   const status = {
     dir: dataDir,
     backupDir,
     file,
     restored: false,
     restoredFrom: '',
-    corrupt: '',
+    repaired: [],      // 本次启动从备份回填的键：{ key, reason: 'missing'|'corrupt', from }
+    unrecovered: [],   // 损坏且没有可用备份的键
     migrated: 0,
     backupError: '',
   };
@@ -90,7 +105,10 @@ function createDataStore(options) {
     const dir = path.dirname(target);
     if (!ensureDir(dir)) throw new Error('无法创建目录：' + dir);
     const tmp = path.join(dir, '.' + path.basename(target) + '.tmp');
+    // 落盘后再改名：断电不能留下一个「已改名但内容为空」的数据文件
     fs.writeFileSync(tmp, content, 'utf8');
+    const fd = fs.openSync(tmp, 'r+');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     try {
       fs.renameSync(tmp, target);
     } catch (_) {
@@ -109,13 +127,48 @@ function createDataStore(options) {
     } catch (_) { return []; }
   }
   function serialize() {
+    const data = Object.create(null);
+    Object.keys(state).forEach(key => { if (!quarantined.has(key)) data[key] = state[key]; });
     return JSON.stringify({
       app: 'songhuodan',
       version: 1,
       kind: 'storage',
       updatedAt: new Date().toISOString(),
-      data: state,
+      data,
     }, null, 2);
+  }
+  // 依次在逐键镜像、最新快照、按日快照（新→旧）里找某个核心键的可用副本
+  function backupCopy(key) {
+    const mirror = readText(fileFor(backupDir, key));
+    if (validCore(key, mirror)) return { text: mirror, from: path.basename(fileFor(backupDir, key)) };
+    const dated = listBackups().filter(file => path.basename(file) !== BACKUP_LATEST).reverse();
+    for (const file of [backupLatest, ...dated]) {
+      const snapshot = readJson(file);
+      const value = snapshot && snapshot.data && typeof snapshot.data === 'object' ? snapshot.data[key] : undefined;
+      const text = typeof value === 'string' ? value : value == null ? null : JSON.stringify(value);
+      if (validCore(key, text)) return { text, from: path.basename(file) };
+    }
+    return null;
+  }
+  function repairCoreKeys() {
+    Object.keys(CORE_SHAPES).forEach(key => {
+      const missing = !(key in state);
+      if (!missing && validCore(key, state[key])) return;
+      const copy = backupCopy(key);
+      if (!copy) {
+        if (!missing) { quarantined.add(key); status.unrecovered.push(key); }
+        return;
+      }
+      try {
+        // 损坏的原文件另存一份，回填不会销毁任何可能还有用的字节
+        if (!missing) fs.copyFileSync(fileFor(dataDir, key), fileFor(dataDir, key) + '.corrupt-' + stamp());
+        writeAtomic(fileFor(dataDir, key), copy.text);
+        state[key] = copy.text;
+        status.repaired.push({ key, reason: missing ? 'missing' : 'corrupt', from: copy.from });
+      } catch (_) {
+        if (!missing) { quarantined.add(key); status.unrecovered.push(key); }
+      }
+    });
   }
 
   /* ---------- 备份（安装目录之外） ---------- */
@@ -124,6 +177,7 @@ function createDataStore(options) {
     try {
       // 单键文件逐个镜像（安装目录被删后仍可逐键恢复）
       Object.keys(state).forEach(key => {
+        if (quarantined.has(key)) return;
         const src = fileFor(dataDir, key);
         if (!fs.existsSync(src)) return;
         fs.copyFileSync(src, fileFor(backupDir, key));
@@ -236,7 +290,10 @@ function createDataStore(options) {
         try { writeAtomic(fileFor(dataDir, key), text); } catch (_) { /* ignore */ }
       });
     }
-    // 4) 启动即把当前状态镜像到安装目录之外，避免备份长期落后
+    // 4) 安装目录仍有数据，但个别核心文件丢失/损坏 → 只回填这些键。
+    //    必须在镜像之前做，否则坏文件会先一步把好备份覆盖掉。
+    if (!mainEmpty) repairCoreKeys();
+    // 5) 启动即把当前状态镜像到安装目录之外，避免备份长期落后
     try { if (!writeBackupMirror()) backupDirty = true; }
     catch (_) { backupDirty = true; }
     return status;
@@ -254,6 +311,8 @@ function createDataStore(options) {
     const target = fileFor(dataDir, key);
     writeAtomic(target, next);            // 失败会抛错 → 上层回滚
     state[key] = next;
+    // 有效数据重新纳入备份；无法解析的核心数据永远不进备份
+    if (key in CORE_SHAPES && !validCore(key, next)) quarantined.add(key); else quarantined.delete(key);
     scheduleBackup();
     return { ok: true };
   }

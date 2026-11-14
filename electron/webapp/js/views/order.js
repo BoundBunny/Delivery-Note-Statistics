@@ -14,10 +14,10 @@ function planOrderItemAddition(items, payload, lookupProducts = () => []) {
   const text = value => String(value == null ? '' : value).trim();
   const price = Number(payload.price), quantity = Number(payload.qty);
   if (!text(payload.name) || !text(payload.qty) || !Number.isFinite(quantity) || quantity <= 0
-      || !Number.isFinite(price) || price < 0 || !Number.isSafeInteger(Math.round(quantity * price * 100))) {
+      || !Number.isFinite(price) || price < 0 || !Number.isSafeInteger(amountCents(quantity, price))) {
     throw new Error('请填写有效的货品、数量和单价');
   }
-  const incoming = { ...payload, amount: Math.round(quantity * price * 100) / 100 };
+  const incoming = { ...payload, amount: lineAmount(quantity, price) };
   let manual;
   const resolveManual = () => {
     if (!manual) {
@@ -45,7 +45,7 @@ function planOrderItemAddition(items, payload, lookupProducts = () => []) {
   });
   if (!indices.length) return { item: incoming, indices, index: items.length };
   const qty = sumQuantityText([...indices.map(index => items[index].qty), incoming.qty]), numericQty = Number(qty);
-  const cents = Math.round(numericQty * price * 100);
+  const cents = amountCents(numericQty, price);
   if (!Number.isFinite(numericQty) || numericQty <= 0 || formatDecimal(numericQty).replace(/,/g, '') !== qty || !Number.isSafeInteger(cents)) {
     throw new Error('合并后的数量或金额超出可计算范围，请调整数量');
   }
@@ -64,7 +64,7 @@ Views.order = {
   renderNew() {
     const s = Store.getSettings();
     const draft = window.__orderDraft || {
-      id: null, no: Store.nextOrderNo(todayStr()), date: todayStr(),
+      id: null, no: Store.peekOrderNo(todayStr()), date: todayStr(),
       operator: s.operator || '',
       customer: null,
       items: [],
@@ -75,7 +75,7 @@ Views.order = {
       draft.id = null;
       delete draft.createdAt;
       delete draft.updatedAt;
-      draft.no = Store.nextOrderNo(draft.date);
+      draft.no = Store.peekOrderNo(draft.date);
       delete draft._copy;
     }
 
@@ -91,7 +91,7 @@ Views.order = {
         <div class="order-meta om-card">
           <div class="om-grid">
             <div class="field"><label class="lab">送货日期</label><input type="date" data-f="date" value="${esc(draft.date)}"></div>
-            <div class="field"><label class="lab">单号</label><div class="om-static" data-role="order-no" title="单号随送货日期自动生成">${esc(draft.no)}</div></div>
+            <div class="field"><label class="lab">单号</label><div class="om-static" data-role="order-no" title="单号随送货日期自动生成，保存时确定">${esc(draft.no)}</div></div>
             <div class="field"><label class="lab">制单人</label><input data-f="operator" value="${esc(draft.operator)}" placeholder="选填"></div>
           </div>
           <div class="field om-cust-field">
@@ -163,7 +163,7 @@ Views.order = {
     function cardHtml(it, i) {
       const display = [it.name, it.spec].filter(Boolean).join(' ');
       const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
-      it.amount = Math.round(q * p * 100) / 100;
+      it.amount = lineAmount(q, p);
       const meta = (q ? fmtNum(q) + (it.unit ? ' ' + it.unit : '') : '数量 0') + ' × ¥' + fmtPrice(p);
       const img = itemImage(it);
       return `
@@ -214,7 +214,7 @@ Views.order = {
       let total = 0;
       (draft.items || []).forEach(it => {
         const q = parseFloat(it.qty) || 0, p = parseFloat(it.price) || 0;
-        it.amount = Math.round(q * p * 100) / 100;
+        it.amount = lineAmount(q, p);
         total += it.amount;
       });
       draft.total = Math.round(total * 100) / 100;
@@ -264,7 +264,7 @@ Views.order = {
       const setVal = (role, v) => { const e = mask.querySelector('[data-role="' + role + '"]'); if (e) e.value = (v == null ? '' : v); };
       const updAmt = () => {
         const q = parseFloat(val('qty')) || 0, p = parseFloat(val('price')) || 0;
-        mask.querySelector('[data-role="amt"]').textContent = '¥' + fmtMoney(Math.round(q * p * 100) / 100);
+        mask.querySelector('[data-role="amt"]').textContent = '¥' + fmtMoney(lineAmount(q, p));
       };
       const renderPicker = () => {
         const kw = (val('name') || '').trim();
@@ -338,7 +338,7 @@ Views.order = {
           const qty = val('qty').trim(), price = val('price').trim();
           if (!qty || !Number.isFinite(Number(qty)) || Number(qty) <= 0
               || !Number.isFinite(Number(price)) || Number(price) < 0
-              || !Number.isSafeInteger(Math.round(Number(qty) * Number(price) * 100))) {
+              || !Number.isSafeInteger(amountCents(qty, price))) {
             toast('请填写大于 0 的有效数量和非负单价，金额不能超出可计算范围', true);
             return;
           }
@@ -346,7 +346,7 @@ Views.order = {
             pid: pickedPid, name,
             spec: val('spec').trim(), unit: val('unit').trim(),
             qty, price, remark: src.remark || '',
-            amount: Math.round((parseFloat(qty) || 0) * (parseFloat(price) || 0) * 100) / 100,
+            amount: lineAmount(qty, price),
           };
           let addition, previous;
           if (!isEdit) {
@@ -467,7 +467,7 @@ Views.order = {
       if (!f) return;
       if (f.dataset.f === 'date' && f.value && f.value !== draft.date && !draft.id) {
         try {
-          draft.no = Store.nextOrderNo(f.value);
+          draft.no = Store.peekOrderNo(f.value);
           $('[data-role="order-no"]', el).textContent = draft.no;
         } catch (error) {
           f.value = draft.date;
@@ -486,7 +486,7 @@ Views.order = {
       if (!draft.items.length || draft.items.some(it => !String(it.name || '').trim()
           || String(it.qty).trim() === '' || !Number.isFinite(Number(it.qty)) || Number(it.qty) <= 0
           || !Number.isFinite(Number(it.price)) || Number(it.price) < 0
-          || !Number.isSafeInteger(Math.round(Number(it.qty) * Number(it.price) * 100)))) {
+          || !Number.isSafeInteger(amountCents(it.qty, it.price)))) {
         toast('请检查货品：名称必填、数量须大于 0、单价须非负，金额不能超出可计算范围', true);
         return;
       }
@@ -497,7 +497,7 @@ Views.order = {
         unit: (it.unit || '').trim(),
         qty: Number(it.qty),
         price: Number(it.price),
-        amount: Math.round(Number(it.qty) * Number(it.price) * 100) / 100,
+        amount: lineAmount(it.qty, it.price),
         remark: (it.remark || '').trim(),
       }));
       if (!clean.length) { toast('请至少填写一行有效货品', true); return; }
@@ -536,7 +536,8 @@ Views.order = {
           });
           for (const [pid, entry] of rememberedPrices) Store.setLastPrice(custId, pid, entry.price);
           const payload = {
-            no: draft.no || Store.nextOrderNo(draft.date),
+            // 新单在保存这一刻才占用单号；界面上显示的是预览
+            no: draft.id ? draft.no : Store.nextOrderNo(draft.date),
             date: draft.date || todayStr(),
             operator: (draft.operator || '').trim(),
             customer,
@@ -620,7 +621,6 @@ Views.order = {
                   </tr>`).join('')}
               </tbody>
             </table>
-            ${o.note ? `<div style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.6">${esc(o.note)}</div>` : ''}
           </div>
           <div class="dc-foot">
             <span class="f-lab">共 <span class="doc-quantity">${fmtNum(qtySum)}</span> 件</span>

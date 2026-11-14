@@ -43,9 +43,8 @@ test('saving the previous order moves queued scans to a fresh draft with no inhe
   assert.notEqual(f.session.state.draft.id, saved.id); assert.equal(f.session.state.draft.customer, null);
   assert.equal(f.session.state.draft.items[0].qty, '1'); assert.equal(f.session.state.phase, 'scanning');
 });
-test('customer and queue decisions are required; explicit walk-in is supported', () => {
-  const f = fixture(); f.session.scan(f.water.barcode); assert.throws(() => f.session.save(), /选择客户/);
-  f.session.setCustomer(null, true); f.session.confirm(); f.session.scan(f.water.barcode);
+test('saving without a customer defaults to walk-in; queue decision is still required', () => {
+  const f = fixture(); f.session.scan(f.water.barcode); f.session.confirm(); f.session.scan(f.water.barcode);
   assert.throws(() => f.session.save(), /决定暂存/); f.session.resume(); const saved = f.session.save();
   assert.equal(saved.customer, null); assert.equal(saved.items[0].qty, 2);
 });

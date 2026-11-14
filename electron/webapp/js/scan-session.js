@@ -4,6 +4,8 @@
   const KEY = 'sd_v1_scan_session_v2';
   const copy = value => JSON.parse(JSON.stringify(value));
   const money = value => value !== '' && value != null && Number.isFinite(Number(value)) && Number(value) >= 0 && Number.isSafeInteger(Math.round(Number(value) * 100));
+  // Exact decimal rounding from util.js; the float fallback only serves isolated module tests.
+  const cents = (qty, price) => typeof amountCents === 'function' ? amountCents(qty, price) : Math.round(Number(qty) * Number(price) * 100);
   const validCode = code => typeof code === 'string' && code.length > 0 && code.length <= 128 && !/[\x00-\x20\x7f]/.test(code);
   function create(options) {
     const { storage, store, plan, now, id, today } = options;
@@ -21,7 +23,7 @@
           || (d.customer != null && (typeof d.customer.id !== 'string' || typeof d.customer.name !== 'string'))
           || !d.items.every(item => item && typeof item.lineId === 'string' && typeof item.pid === 'string'
             && typeof item.name === 'string' && item.name.trim() && Number(item.qty) > 0 && money(item.price)
-            && Number.isSafeInteger(Math.round(Number(item.qty) * Number(item.price) * 100)))) throw new Error('invalid draft');
+            && Number.isSafeInteger(cents(item.qty, item.price)))) throw new Error('invalid draft');
     }
     try {
       const raw = storage.getItem(KEY);
@@ -123,9 +125,9 @@
         if (!['qty', 'price', 'remark'].includes(field)) throw new Error('不支持的修改');
         const candidate = { ...item, [field]: value };
         if (field !== 'remark' && (!money(candidate.price) || !Number.isFinite(Number(candidate.qty)) || Number(candidate.qty) <= 0
-          || !Number.isSafeInteger(Math.round(Number(candidate.qty) * Number(candidate.price) * 100)))) throw new Error('数量须大于 0，单价须非负，金额不能超出范围');
+          || !Number.isSafeInteger(cents(candidate.qty, candidate.price)))) throw new Error('数量须大于 0，单价须非负，金额不能超出范围');
         Object.assign(item, candidate); if (field === 'price') { item.manualPrice = true; item.needsPrice = false; }
-        item.amount = Math.round(Number(item.qty) * Number(item.price) * 100) / 100;
+        item.amount = cents(item.qty, item.price) / 100;
         history = []; touch(); persist();
       },
       remove(lineId) { state.draft.items = state.draft.items.filter(item => item.lineId !== lineId); history = []; touch(); persist(); },
@@ -136,7 +138,7 @@
           if (item.manualPrice) continue;
           const product = store.getProduct(item.pid), price = customer ? store.getLastPrice(customer.id, item.pid) : null;
           const next = price != null && price !== '' ? price : product?.price;
-          if (money(next)) { item.price = String(next); item.amount = Math.round(Number(item.qty) * Number(next) * 100) / 100; item.needsPrice = false; }
+          if (money(next)) { item.price = String(next); item.amount = cents(item.qty, next) / 100; item.needsPrice = false; }
           else item.needsPrice = true;
         }
         history = []; touch(); persist();
@@ -169,7 +171,6 @@
         if (error) { if (reconcile()) return { recovered: true }; persist(); }
         const d = state.draft;
         if (!d) throw new Error('没有待保存的单据');
-        if (!d.customer && !d.walkIn) throw new Error('请先选择客户，或明确选择散客');
         if (d.customer && !store.getCustomer(d.customer.id)) throw new Error('客户已不存在，请重新选择');
         if (d.issues.length) throw new Error('请先处理未登记、缺价等待处理扫码');
         if (d.items.some(item => item.needsPrice)) throw new Error('客户切换后有商品缺少默认售价，请逐项确认单价');
@@ -178,7 +179,7 @@
         if (d.items.some(item => !money(item.price) || !Number.isFinite(Number(item.qty)) || Number(item.qty) <= 0)) throw new Error('请检查商品数量和售价');
         state.afterSave = next ? 'next' : 'idle'; persist();
         const saved = store.getOrder(d.id) || store.transaction(() => {
-          const items = d.items.map(item => ({ pid: item.pid, name: item.name, spec: item.spec, unit: item.unit, qty: Number(item.qty), price: Number(item.price), amount: Math.round(Number(item.qty) * Number(item.price) * 100) / 100, remark: item.remark || '' }));
+          const items = d.items.map(item => ({ pid: item.pid, name: item.name, spec: item.spec, unit: item.unit, qty: Number(item.qty), price: Number(item.price), amount: cents(item.qty, item.price) / 100, remark: item.remark || '' }));
           const total = items.reduce((cents, item) => cents + Math.round(item.amount * 100), 0) / 100;
           if (!Number.isSafeInteger(Math.round(total * 100))) throw new Error('合计金额超出范围');
           const prices = new Map(); items.forEach(item => prices.set(item.pid, item.price));

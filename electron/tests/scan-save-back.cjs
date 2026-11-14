@@ -1,0 +1,42 @@
+'use strict';
+const { app, BrowserWindow } = require('electron');
+const fs = require('node:fs'), os = require('node:os'), path = require('node:path'), assert = require('node:assert/strict');
+const ROOT = path.resolve(__dirname, '..');
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dns-scan-saveback-'));
+for (const [key, directory] of Object.entries({ DNS_TEST_USER_DATA: 'profile', DNS_TEST_DATA_DIR: 'data', DNS_TEST_BACKUP_DIR: 'backup', DNS_TEST_IMAGE_DIR: 'images', DNS_TEST_SAVE_DIR: 'exports' })) process.env[key] = path.join(temporary, directory);
+app.setPath('userData', process.env.DNS_TEST_USER_DATA); app.disableHardwareAcceleration();
+const pause = ms => new Promise(r => setTimeout(r, ms));
+const results = [];
+const deadline = setTimeout(() => { console.error('SCAN_SAVEBACK_TIMEOUT'); app.exit(1); }, 120000);
+require(path.join(ROOT, 'main.js'));
+app.whenReady().then(async () => {
+  let win; for (let i = 0; i < 200; i++) { win = BrowserWindow.getAllWindows()[0]; if (win) break; await pause(30); }
+  win.webContents.on('console-message', (_e, level, message) => { if (level >= 2 && !/Security Warning|GL Driver|ReadPixels|Context/.test(message)) console.log('RENDERER[' + level + ']', message); });
+  const js = code => win.webContents.executeJavaScript(code, true);
+  const wait = async (code, seconds = 10) => { for (let i = 0; i < seconds * 20; i++) { if (await js(code).catch(() => false)) return; await pause(50); } throw new Error('Timeout: ' + code); };
+  const check = async (name, action) => { try { await action(); results.push({ name, ok: true }); console.log('PASS ' + name); } catch (error) { results.push({ name, ok: false, error: error.message }); console.error('FAIL ' + name + ': ' + error.message); } };
+  await wait('!!window.DNSDesktop?.ready && !!window.ScanOrders'); win.show(); win.focus(); win.setContentSize(1200, 850);
+  await js(`Store.clearAll(); DNSDesktop.setSceneEnabled(false); Store.upsertProduct({ name: '回退测试商品', barcode: '6900000000099', spec: '500ml', unit: '瓶', price: 9 }); void 0`);
+  await js('ScanOrders.open();void 0'); await pause(250);
+  await js(`ScanOrders.session.scan('6900000000099');void 0`); await pause(150);
+  await js("location.hash='#/orders';void 0"); await pause(350);
+  await js("location.hash='#/order/scan';void 0"); await pause(700);
+  await js('document.querySelector("[data-scan-action=finish]").click();void 0'); await wait('!!document.querySelector(".scan-confirm-dialog")'); await pause(300);
+  await js('document.querySelector(".scan-confirm-dialog [data-scan-action=save]").click();void 0');
+  await wait(`location.hash.startsWith('#/order/view?id=')`);
+  await pause(500);
+  const savedHash = await js('location.hash');
+  console.log('SAVED_HASH', savedHash);
+  await check('detail top-left back does not return to scan page', async () => {
+    console.log('DOM', await js(`JSON.stringify({ mod: document.querySelector('#desktop-module-window')?document.querySelector('#desktop-module-window').className:null, views: Array.from(document.querySelectorAll('.view')).map(v=>v.className+':'+(v.id||'')), backs: Array.from(document.querySelectorAll('[data-act=back]')).length })`));
+    const clicked = await js(`(() => { const b = document.querySelector('#desktop-module-window .view.active [data-act="back"]') || document.querySelector('.view.active [data-act="back"]'); if (!b) return false; b.click(); return true; })()`);
+    assert.equal(clicked, true);
+    await pause(600);
+    const hash = await js('location.hash');
+    console.log('AFTER_BACK', hash);
+    assert.notEqual(hash, '#/order/scan');
+    assert.equal(await js('!!document.querySelector("#desktop-module-window .scan-order-content")'), false);
+  });
+  fs.writeFileSync(path.join(ROOT, '.shots/design/scan-save-back.json'), JSON.stringify({ savedHash, results }, null, 2));
+  clearTimeout(deadline); win.destroy(); app.exit(results.every(r => r.ok) ? 0 : 1);
+}).catch(error => { console.error(error.stack || error); app.exit(1); });

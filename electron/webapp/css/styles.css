@@ -452,9 +452,11 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 .doc .d-company-detail{font-size:12px;line-height:1.45;margin-top:2px}
 .doc .d-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:4px;white-space:nowrap}
 .doc .d-no{text-align:right;font-size:11px;line-height:1.45}
-.doc .d-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 16px;font-size:12.5px;margin:6px 0;line-height:1.5;overflow-wrap:anywhere}
+.doc .d-meta{display:flex;align-items:flex-start;gap:2px 0;font-size:12.5px;margin:6px 0;line-height:1.5;overflow-wrap:anywhere}
 .doc .d-meta span b{font-weight:600}
-.doc .d-meta .d-date{grid-column:2;text-align:right}
+.doc .d-meta .d-customer-name{flex:0 1 auto;min-width:0;margin-right:50px}
+.doc .d-meta .d-customer-phone{flex:0 0 auto;white-space:nowrap}
+.doc .d-meta .d-date{flex:0 0 auto;margin-left:auto;text-align:right;white-space:nowrap}
 .doc table{width:100%;min-width:600px;border-collapse:collapse;font-size:12.5px}
 .doc table th,.doc table td{border:1px solid #555;padding:4px;text-align:center;white-space:nowrap}
 .doc table th:nth-child(2){min-width:140px}

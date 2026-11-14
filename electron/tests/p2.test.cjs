@@ -188,3 +188,18 @@ test('simultaneous shares and sanitized filename collisions preserve every previ
   for (let i = 0; i < results.length; i++) { assert.equal(results[i].ok, true); assert.equal(fs.readFileSync(results[i].path, 'utf8'), 'share-' + i); }
   assert.equal(fs.readFileSync(previous, 'utf8'), 'original'); assert.equal(fs.readdirSync(directory).length, 7);
 });
+
+test('line amounts round half-up from exact decimals, not binary floating point', () => {
+  const context = vm.createContext({ window: { addEventListener() {} }, document: { addEventListener() {} }, requestAnimationFrame() {}, Intl });
+  vm.runInContext(fs.readFileSync(path.join(ROOT, 'webapp/js/util.js'), 'utf8'), context);
+  const amount = (q, p) => vm.runInContext(`lineAmount(${JSON.stringify(q)}, ${JSON.stringify(p)})`, context);
+  assert.equal(amount('0.1', '0.35'), 0.04);
+  assert.equal(amount(1, 1.005), 1.01);
+  assert.equal(amount('0.1', '21.15'), 2.12);
+  assert.equal(amount(3, 2.5), 7.5);
+  assert.equal(amount('232', '2.00'), 464);
+  assert.equal(amount(1, 0.004), 0);
+  assert.equal(amount(1e-7, 1), 0);
+  assert.ok(Number.isNaN(amount('x', 1)));
+  for (let q = 1; q <= 60; q++) for (let i = 1; i <= 999; i++) assert.equal(Math.round(amount(q, i / 100) * 100), q * i);
+});

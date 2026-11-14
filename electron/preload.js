@@ -15,6 +15,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 
 window.__dnsWindowActive = true;
+window.__DNS_DEV = typeof process !== 'undefined' && Array.isArray(process.argv) && process.argv.includes('--dns-dev');
 ipcRenderer.on('sd:windowActivity', (_event, active) => {
   window.__dnsWindowActive = !!active;
   window.dispatchEvent(new Event('dns-window-activity'));

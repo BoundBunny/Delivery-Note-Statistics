@@ -61,6 +61,20 @@ function formatDecimal(n, minimumFractionDigits = 0) {
   return (n < 0 ? '-' : '') + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (fraction ? '.' + fraction : '');
 }
 function fmtPrice(n) { return formatDecimal(n, 2); }
+// Line amounts are rounded half-up from the exact decimal product. Binary
+// floating point (0.1 × 0.35 × 100 = 3.4999…) must not decide the last cent.
+function amountCents(qty, price) {
+  const q = Number(qty), p = Number(price);
+  if (!Number.isFinite(q) || !Number.isFinite(p)) return NaN;
+  const digits = value => {
+    const [whole, fraction = ''] = formatDecimal(Math.abs(value)).replace(/,/g, '').split('.');
+    return { units: BigInt(whole + fraction), scale: fraction.length };
+  };
+  const a = digits(q), b = digits(p), divisor = 10n ** BigInt(a.scale + b.scale);
+  const cents = (a.units * b.units * 200n + divisor) / (2n * divisor);
+  return Number((q < 0) !== (p < 0) ? -cents : cents);
+}
+function lineAmount(qty, price) { return amountCents(qty, price) / 100; }
 function sumQuantities(values) {
   return Number(sumQuantityText(values));
 }

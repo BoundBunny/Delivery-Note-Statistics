@@ -132,8 +132,8 @@ test('unrecognized, incomplete, incompatible and damaged backups cannot alter ex
     { app: 'songhuodan', version: 1, data: { sd_v1_orders: 'damaged' } },
     { app: 'songhuodan', version: 1, data: { sd_v1_orders: '[]', orders: [] } },
   ];
-  for (const mutate of [b => delete b.data.orders, b => b.data.customers = null, b => b.catalog.entries[0].key = 'missing',
-    b => b.catalog.entries[0].id = b.data.products[0].id, b => b.catalog.entries[0].changes.price = -1]) {
+  for (const mutate of [b => delete b.data.orders, b => b.data.customers = null, b => { b.catalog.entries[0].key = 'missing'; delete b.catalog.entries[0].record; },
+    b => b.catalog.entries[0].id = b.data.products[0].id, b => b.catalog.entries[0].record.price = -1, b => b.catalog.entries[0].record.image = 'C:/x.png']) {
     const backup = JSON.parse(original); mutate(backup); cases.push(backup);
   }
   for (const backup of cases) {
@@ -252,4 +252,25 @@ test('missing custom image stops portable export instead of creating an incomple
   app.context.fetch = async () => ({ ok: false });
   await assert.rejects(vm.runInContext('exportBackupJSON()', app.context), /备份未导出/);
   assert.equal(app.store.getProduct(fx.product.id).image, 'missing.png');
+});
+
+test('a backup restores on an app version whose built-in catalog was renamed or repriced', () => {
+  const old = boot();
+  const [first, second] = old.store.listProducts().sort((a, b) => a.barcode.localeCompare(b.barcode));
+  old.store.addOrder({ no: 'SD-20261112-001', date: '2026-11-12', customer: null, total: 4,
+    items: [{ pid: second.id, name: second.name, spec: second.spec, unit: second.unit, qty: 2, price: 2, amount: 4 }] });
+  const backup = old.store.exportJSON();
+  // New version: 甲 was repriced, 乙 was replaced by a different barcode and name.
+  const next = boot({}, [{ ...seeds[0], price: 9 }, { name: '新品', barcode: '777', spec: '1kg', unit: '袋', price: 1, category: 'other' }]);
+  next.store.importJSON(backup);
+  const restored = id => next.store.getProduct(id);
+  assert.equal(restored(first.id).price, 2, 'an unchanged price must not drift to the new catalog price');
+  assert.equal(restored(first.id).builtinKey, 'barcode:001');
+  assert.equal(restored(second.id).name, '内置商品乙');
+  assert.equal(restored(second.id).origin, 'custom');
+  assert.equal(next.store.listOrders()[0].items[0].pid, second.id);
+  // The restored data can be backed up and restored again.
+  const again = boot({}, [{ ...seeds[0], price: 9 }]);
+  again.store.importJSON(next.store.exportJSON());
+  assert.equal(again.store.getProduct(second.id).name, '内置商品乙');
 });

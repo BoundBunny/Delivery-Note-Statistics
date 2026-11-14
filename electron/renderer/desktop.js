@@ -381,19 +381,19 @@ window.DNSDesktop = (() => {
   function clicked(event){
     const button=event.target.closest('button,[data-route],[data-module]');if(!button||!root.contains(button))return;
     const v=button.dataset;
-    if(v.route){go(v.route);return;}
+    if(v.route){if(v.route.indexOf('#/stats')===0&&Views.stats&&Views.stats.state)Views.stats.state.range='month';go(v.route);return;}
     if(v.searchOrder){root.querySelector('#search-results').hidden=true;go('#/order/view?id='+encodeURIComponent(v.searchOrder));return;}
     if(v.searchCustomer){root.querySelector('#search-results').hidden=true;go('#/customers?edit='+encodeURIComponent(v.searchCustomer));return;}
     if(v.searchProduct){root.querySelector('#search-results').hidden=true;go('#/products?edit='+encodeURIComponent(v.searchProduct));return;}
     if(v.orderId){if(state.selectionOpen&&state.selectedId===v.orderId&&['orders','stats'].includes(mode))closeSelection(true);else selectOrder(v.orderId);return;}
     if(v.customerId){go('#/customers?edit='+encodeURIComponent(v.customerId));return;}
-    if(v.module){go('#/'+v.module);return;}
+    if(v.module){if(v.module==='stats'&&Views.stats&&Views.stats.state)Views.stats.state.range='month';go('#/'+v.module);return;}
     const action=v.action;
     if(action==='selection-close'){closeSelection(true);return;}
     if(action==='clear-search'){const inp=root.querySelector('#global-search');if(inp){inp.value='';inp.focus();}const cb=root.querySelector('.hs-clear');if(cb)cb.hidden=true;root.querySelector('#search-results').hidden=true;return;}
     if(action==='export-recovery'){downloadBlob('送货单原始数据_'+today()+'.json',new Blob([Store.exportRecoveryJSON()],{type:'application/json'}));return;}
     if(action==='new')go('#/order/new');
-    if(action==='statistics-expand')go(mode==='stats'?'#/orders':'#/stats');
+    if(action==='statistics-expand'){if(mode!=='stats'&&Views.stats&&Views.stats.state)Views.stats.state.range='month';go(mode==='stats'?'#/orders':'#/stats');}
     if(action==='selection-expand'){const o=selected();if(o)go('#/order/view?id='+encodeURIComponent(o.id));}
     if(action==='copy-order'){const o=selected();if(o){window.__orderDraft={...o,id:null,customer:o.customer?{...o.customer}:null,items:o.items.map(i=>({...i})),_copy:true};go('#/order/new');}}
     if(action==='reset-view'){if(mode==='orders'){scene?.focus('home');scene?.reshowMarkers?.();setTimeout(()=>scene?.reshowMarkers?.(),180);}else go('#/orders');}
@@ -432,13 +432,13 @@ window.DNSDesktop = (() => {
     if(started)return;started=true;originalApp=document.getElementById('app');container=document.getElementById('view-container');
     root=document.createElement('div');root.id='desktop-app';root.innerHTML=window.DNSDesktopMarkup;
     page=document.createElement('section');page.id='desktop-module-window';page.className='desktop-business-page';page.hidden=true;page.tabIndex=-1;page.setAttribute('role','dialog');page.setAttribute('aria-modal','false');page.setAttribute('aria-labelledby','desktop-module-title');
-    page.innerHTML='<header class="module-window-header"><div class="module-window-title"><span class="module-icon">'+icon('grid')+'</span><span><strong id="desktop-module-title"></strong></span></div><div class="module-window-controls"><button data-window-action="maximize" title="最大化任务窗口" aria-label="最大化任务窗口" aria-pressed="false">'+icon('expand')+'</button><button data-window-action="close" title="关闭任务，返回原位置" aria-label="关闭任务，返回原位置">'+icon('close')+'</button></div></header><div class="module-window-body" data-desktop-scroll></div>';
+    page.innerHTML='<header class="module-window-header"><div class="module-window-title"><span class="module-icon">'+icon('grid')+'</span><span><strong id="desktop-module-title"></strong></span></div><div class="module-window-controls"><button data-window-action="maximize" title="最大化任务窗口" aria-label="最大化任务窗口" aria-pressed="false">'+icon('expand')+'</button><button data-window-action="close" title="关闭" aria-label="关闭">'+icon('close')+'</button></div></header><div class="module-window-body" data-desktop-scroll></div>';
     reader=document.createElement('section');reader.id='desktop-reader';reader.className='desktop-reading-page';reader.hidden=true;reader.setAttribute('role','region');reader.setAttribute('aria-labelledby','desktop-reader-title');
     reader.innerHTML='<header class="desktop-reader-header"><strong id="desktop-reader-title"></strong><button data-close-reader>返回原位置 '+icon('arrow')+'</button></header><div class="desktop-reader-body" data-desktop-scroll></div>';
     document.body.classList.add('dns-desktop');document.body.append(root,page,reader);
     root.querySelector('.brand').addEventListener('click',event=>{event.preventDefault();restoreWorkspace();});
     const handle=page.querySelector('.module-window-header');handle.addEventListener('pointerdown',dragStart);handle.addEventListener('pointermove',dragMove);handle.addEventListener('pointerup',dragEnd);handle.addEventListener('pointercancel',dragEnd);handle.addEventListener('dblclick',event=>{if(!event.target.closest('button'))maximizeModule();});
-    page.addEventListener('click',event=>{const a=event.target.closest('[data-window-action]')?.dataset.windowAction;if(a==='close')go(taskReturn);if(a==='maximize')maximizeModule();});
+    page.addEventListener('click',event=>{const a=event.target.closest('[data-window-action]')?.dataset.windowAction;if(a==='close'){if(location.hash==='#/order/scan'&&window.ScanOrders?.promptClose){window.ScanOrders.promptClose().then(choice=>{if(choice)go(taskReturn);});}else{go(taskReturn);}}if(a==='maximize')maximizeModule();});
     reader.addEventListener('click',event=>{if(event.target.closest('[data-close-reader]'))go(readerReturn);});
     page.addEventListener('input',()=>{if(editableForm())moduleDirty=true;});page.addEventListener('change',()=>{if(editableForm())moduleDirty=true;});
     page.addEventListener('click',()=>{if(currentView?.querySelector('[data-role="name"],[data-s="company"]')!==formAnchor)captureFormBaseline();});
@@ -452,6 +452,7 @@ window.DNSDesktop = (() => {
     window.DNSBackground={isEnabled:()=>prefs.scene,setEnabled:setSceneEnabled,refresh,stats:()=>({state:!prefs.scene?'off':mode!=='orders'?'skip':scene?'ready':sceneLoading?'loading':'fallback',fps:scene?.stats().fps||0,tier:'送货单首页',reducedMotion:!!(scene&&!scene.stats().motion),level:0})};
     window.__appBack=()=>{if(state.selectionOpen&&['orders','stats'].includes(mode))closeSelection(true);else if(mode==='task')go(taskReturn);else if(mode==='reader')go(readerReturn);else if(mode==='detail')go(detailReturn);else go('#/orders');return true;};
     route();ready=true;
+    if(window.__DNSStorageInfo?.repaired?.length)toast('发现数据文件丢失或损坏，已从本机备份回填，请核对最近的单据',true);
     moduleResizeObserver=new ResizeObserver(updateModuleGeometry);moduleResizeObserver.observe(page);
     metricResizeObserver=new ResizeObserver(scheduleMetrics);metricResizeObserver.observe(root.querySelector('#dispatch-panel'));metricResizeObserver.observe(root.querySelector('#statistics-panel'));
     unsubscribeStore=Store.subscribe(()=>{if(started){if(!currentView?.__draft&&!editableForm())moduleDirty=false;refresh();}});

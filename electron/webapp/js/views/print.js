@@ -5,7 +5,16 @@
 'use strict';
 window.Views = window.Views || {};
 
-/* 送货单不再打印电话、地址（用户要求）：公司与客户联系方式均不显示。 */
+/* 送货单：公司电话/地址不打印；客户电话按需显示（客户地址不显示）。 */
+
+/* 单据时间（精确到秒）：取订单创建时间，附在送货日期后面 */
+function fmtOrderTime(o) {
+  const ts = o && o.createdAt;
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  return ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
 
 /* 保存图片：直接用 Canvas 绘制送货单（不依赖 SVG foreignObject，安卓 WebView 更稳） */
 // 公司名称水印：画布版（斜向平铺、品牌深蓝 + 金，极淡，绘制在白底之上、正文之下）
@@ -101,21 +110,25 @@ function drawDocToCanvas(o, s) {
   const rows = o.items;
   const ROW_H = 24;
   const sideWidth = (innerW - 116) / 2;
-  const companyLines = s.company ? wrap(s.company, sideWidth, 'bold 22px ' + font) : [];
+  const companyLines = []; // 公司名称不再出现在单据左上角，仅保留水印
   const noLines = wrap('单号：' + o.no, sideWidth, '11px ' + font);
   const headerHeight = Math.max(28, companyLines.length * 28, noLines.length * 16);
   const companyDetails = [];
   const customerDetails = [];
-  const colW = innerW / 2;
-  const meta = [
-    [o.customer && o.customer.name ? '客户名称：' + o.customer.name : '', '送货日期：' + o.date],
-    ...(customerDetails.some(Boolean) ? [customerDetails] : []),
-  ].map(row => {
-    const cells = row.map(text => wrap(text, colW - 10, '12px ' + font));
-    return { cells, height: Math.max(1, ...cells.map(lines => lines.length)) * 18 };
-  });
+  const phone = o.customer && o.customer.phone ? '客户电话：' + o.customer.phone : '';
+  // 客户名称、客户电话、送货日期保持同一行；名称过长时在自身区域内换行，不把电话/日期挤到下一行。
+  const metaName = o.customer && o.customer.name ? '客户名称：' + o.customer.name : '';
+  const metaDate = '送货日期：' + o.date + fmtOrderTime(o);
+  measure.font = '12px ' + font;
+  const metaNameLines = wrap(metaName, Math.max(120, innerW * 0.44 - 10), '12px ' + font);
+  const metaDateLines = wrap(metaDate, Math.max(120, innerW * 0.32 - 8), '12px ' + font);
+  const metaH = Math.max(1, metaNameLines.length, metaDateLines.length) * 18;
+  // 客户名称与客户电话之间固定约 4 个汉字的间距
+  const metaNameW = metaNameLines.length ? Math.max(...metaNameLines.map(t => measure.measureText(t).width)) : 0;
+  const metaGapW = measure.measureText('中中中中').width;
+  const metaPhoneX = padL + Math.min(metaNameW, innerW * 0.44 - 10) + metaGapW;
   const headTop = 14 + headerHeight + (companyDetails.length ? 2 + companyDetails.length * 17 : 0)
-    + 6 + meta.reduce((sum, row) => sum + row.height, 0) + 6;
+    + 6 + metaH + 6;
   const upperLines = wrap('金额（大写）：' + amountUpper(o.total), innerW - 16, '13px ' + font);
   const upperHeight = Math.max(26, upperLines.length * 18 + 8);
   const H = headTop + 24 + rows.length * ROW_H + 32 + upperHeight + 36;
@@ -132,10 +145,9 @@ function drawDocToCanvas(o, s) {
 
   let y = 14;
 
-  // 公司、标题和单号同排，联系方式紧随其后。
+  // 标题与单号同排；公司名称只在水印中体现。
   ctx.textAlign = 'left';
   ctx.font = 'bold 22px ' + font;
-  companyLines.forEach((text, i) => ctx.fillText(text, padL, y + (headerHeight - companyLines.length * 28) / 2 + i * 28 + 14));
   ctx.textAlign = 'center';
   ctx.font = 'bold 22px ' + font;
   ctx.fillText('送 货 单', W / 2, y + headerHeight / 2);
@@ -150,17 +162,14 @@ function drawDocToCanvas(o, s) {
     companyDetails.forEach(text => { ctx.fillText(text, padL, y + 8.5); y += 17; });
   }
   y += 6;
-  // 常规信息一行；客户有电话、地址时再显示一行，空信息不占位置。
-  meta.forEach(row => {
-    row.cells.forEach((lines, ci) => {
-      // 送货日期（第二列）右对齐到表格右边缘，与表格对齐
-      const right = ci === 1;
-      ctx.textAlign = right ? 'right' : 'left';
-      const x = right ? padL + (ci + 1) * colW : padL + ci * colW;
-      lines.forEach((text, ri) => ctx.fillText(text, x, y + ri * 18 + 9));
-    });
-    y += row.height;
-  });
+  // 客户名称、客户电话、送货日期同一行；客户名称过长时在左侧区域内换行。
+  ctx.textAlign = 'left';
+  ctx.font = '12px ' + font;
+  metaNameLines.forEach((text, ri) => ctx.fillText(text, padL, y + ri * 18 + 9, innerW * 0.44 - 10));
+  if (phone) ctx.fillText(phone, metaPhoneX, y + 9, innerW * 0.24);
+  ctx.textAlign = 'right';
+  metaDateLines.forEach((text, ri) => ctx.fillText(text, padL + innerW, y + ri * 18 + 9));
+  y += metaH;
   ctx.textAlign = 'left';
   y += 6;
 
@@ -282,7 +291,7 @@ Views.print = {
           ${wmText ? '<div class="doc-watermark" aria-hidden="true"></div>' : ''}
           <div class="d-company">
             <div class="d-header">
-              <div class="d-company-slot">${s.company ? `<div class="d-company-name">${esc(s.company)}</div>` : ''}</div>
+              <div class="d-company-slot"></div>
               <div class="d-title">送货单</div>
               <div class="d-no">单号：${esc(o.no)}</div>
             </div>
@@ -290,7 +299,8 @@ Views.print = {
           </div>
           <div class="d-meta">
             ${o.customer && o.customer.name ? `<span class="d-customer-name">客户名称：<b>${esc(o.customer.name)}</b></span>` : ''}
-            <span class="d-date">送货日期：<b>${esc(o.date)}</b></span>
+            ${o.customer && o.customer.phone ? `<span class="d-customer-phone">客户电话：<b>${esc(o.customer.phone)}</b></span>` : ''}
+            <span class="d-date">送货日期：<b>${esc(o.date + fmtOrderTime(o))}</b></span>
             ${customerDetails.some(Boolean) ? customerDetails.map(text => `<span>${esc(text)}</span>`).join('') : ''}
           </div>
           <table>
