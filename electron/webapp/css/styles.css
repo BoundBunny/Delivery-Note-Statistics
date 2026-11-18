@@ -448,16 +448,16 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 }
 .doc .d-company{overflow-wrap:anywhere}
 .doc .d-header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:10px;min-height:28px}
-.doc .d-company-name{font-size:22px;font-weight:700;line-height:1.25;letter-spacing:1px}
-.doc .d-company-detail{font-size:12px;line-height:1.45;margin-top:2px}
-.doc .d-title{text-align:center;font-size:22px;font-weight:700;letter-spacing:4px;white-space:nowrap}
-.doc .d-no{text-align:right;font-size:11px;line-height:1.45}
-.doc .d-meta{display:flex;align-items:flex-start;gap:2px 0;font-size:12.5px;margin:6px 0;line-height:1.5;overflow-wrap:anywhere}
+.doc .d-company-name{font-size:26px;font-weight:700;line-height:1.25;letter-spacing:1px}
+.doc .d-company-detail{font-size:13.5px;line-height:1.45;margin-top:2px}
+.doc .d-title{text-align:center;font-size:30px;font-weight:700;letter-spacing:4px;white-space:nowrap}
+.doc .d-no{text-align:right;font-size:13px;line-height:1.45}
+.doc .d-meta{display:flex;flex-wrap:nowrap;align-items:flex-start;gap:0;font-size:14px;margin:6px 0;line-height:1.5;overflow-wrap:anywhere}
 .doc .d-meta span b{font-weight:600}
-.doc .d-meta .d-customer-name{flex:0 1 auto;min-width:0;margin-right:50px}
-.doc .d-meta .d-customer-phone{flex:0 0 auto;white-space:nowrap}
-.doc .d-meta .d-date{flex:0 0 auto;margin-left:auto;text-align:right;white-space:nowrap}
-.doc table{width:100%;min-width:600px;border-collapse:collapse;font-size:12.5px}
+.doc .d-meta .d-customer-name{flex:1 1 auto;min-width:0}
+.doc .d-meta .d-customer-phone{flex:0 0 auto;white-space:nowrap;margin-left:24px}
+.doc .d-meta .d-date{flex:0 0 auto;margin-left:24px;text-align:right;white-space:nowrap}
+.doc table{width:100%;min-width:600px;border-collapse:collapse;font-size:15px}
 .doc table th,.doc table td{border:1px solid #555;padding:4px;text-align:center;white-space:nowrap}
 .doc table th:nth-child(2){min-width:140px}
 .doc table th:nth-child(5),.doc table th:nth-child(6){min-width:112px}
@@ -465,17 +465,17 @@ button.podium-info:focus-visible{outline:2px solid var(--podium-accent);outline-
 .doc table th{background:#F1F2F5;font-weight:600}
 .doc .d-total{display:table-row-group;break-inside:avoid;page-break-inside:avoid}
 .doc .d-total td{padding:4px 8px;white-space:normal;vertical-align:middle}
-.doc .d-total .t-label{font-size:13px;font-weight:700}
+.doc .d-total .t-label{font-size:15px;font-weight:700}
 .doc .d-total .t-qty{font-variant-numeric:tabular-nums;white-space:nowrap}
-.doc .d-total .t-cap{text-align:left;overflow-wrap:anywhere;font-size:13px;line-height:1.4}
+.doc .d-total .t-cap{text-align:left;overflow-wrap:anywhere;font-size:15px;line-height:1.4}
 .doc .d-total .t-cap span{font-weight:400}
 .doc .d-total .t-cap b{font-weight:600}
 .doc .d-total .t-amount{text-align:right}
-.doc .d-total .t-num{display:block;font-size:22px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
-.doc .d-note{border:1px solid #555;padding:7px 8px;font-size:12px;line-height:1.7;margin:12px 0 10px;overflow-wrap:anywhere}
+.doc .d-total .t-num{display:block;font-size:26px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.doc .d-note{border:1px solid #555;padding:7px 8px;font-size:14px;line-height:1.7;margin:12px 0 10px;overflow-wrap:anywhere}
 .doc .d-sign{
   display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;
-  padding:8px 0 2px;font-size:12px;line-height:1.6;overflow-wrap:anywhere;
+  padding:8px 0 2px;font-size:14px;line-height:1.6;overflow-wrap:anywhere;
 }
 .doc .d-sign div{text-align:left}
 .doc-wrap{position:relative}

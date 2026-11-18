@@ -84,10 +84,12 @@ function drawDocToCanvas(o, s) {
   const numericWidth = (key, format, min) => Math.max(min, ...o.items.map(it =>
     Math.ceil(measure.measureText(format(it[key])).width) + 14));
   // 列宽由完整数值决定；画布覆盖全部列，金额不压缩、不截断。
-  const cols = [30, 196, 40, numericWidth('qty', fmtNum, 60), numericWidth('price', fmtPrice, 100), numericWidth('amount', fmtMoney, 112), 80];
-  cols[3] = Math.max(cols[3], Math.ceil(measure.measureText(qtyTotal).width) + 14);
+  const specW = Math.max(52, Math.min(110, Math.ceil(measure.measureText('规格').width) +
+    (o.items.length ? Math.max.apply(null, o.items.map(it => measure.measureText(it.spec == null ? '' : String(it.spec)).width)) : 0) + 14));
+  const cols = [30, 170, specW, 40, numericWidth('qty', fmtNum, 60), numericWidth('price', fmtPrice, 100), numericWidth('amount', fmtMoney, 112), 80];
+  cols[4] = Math.max(cols[4], Math.ceil(measure.measureText(qtyTotal).width) + 14);
   measure.font = 'bold 22px ' + font;
-  cols[5] = Math.max(cols[5], Math.ceil(measure.measureText('¥' + fmtMoney(o.total)).width) + 24 - cols[4] - cols[6]);
+  cols[6] = Math.max(cols[6], Math.ceil(measure.measureText('¥' + fmtMoney(o.total)).width) + 24 - cols[5] - cols[7]);
   const W = padL + cols.reduce((a, b) => a + b, 0) + padR;
   const innerW = W - padL - padR;
   const scale = 2;
@@ -108,10 +110,10 @@ function drawDocToCanvas(o, s) {
 
   /* 先计算总高度 */
   const rows = o.items;
-  const ROW_H = 24;
+  const ROW_H = 30;
   const sideWidth = (innerW - 116) / 2;
   const companyLines = []; // 公司名称不再出现在单据左上角，仅保留水印
-  const noLines = wrap('单号：' + o.no, sideWidth, '11px ' + font);
+  const noLines = wrap('单号：' + o.no, sideWidth, '13px ' + font);
   const headerHeight = Math.max(28, companyLines.length * 28, noLines.length * 16);
   const companyDetails = [];
   const customerDetails = [];
@@ -119,17 +121,17 @@ function drawDocToCanvas(o, s) {
   // 客户名称、客户电话、送货日期保持同一行；名称过长时在自身区域内换行，不把电话/日期挤到下一行。
   const metaName = o.customer && o.customer.name ? '客户名称：' + o.customer.name : '';
   const metaDate = '送货日期：' + o.date + fmtOrderTime(o);
-  measure.font = '12px ' + font;
-  const metaNameLines = wrap(metaName, Math.max(120, innerW * 0.44 - 10), '12px ' + font);
-  const metaDateLines = wrap(metaDate, Math.max(120, innerW * 0.32 - 8), '12px ' + font);
-  const metaH = Math.max(1, metaNameLines.length, metaDateLines.length) * 18;
+  measure.font = '14px ' + font;
+  const metaNameLines = wrap(metaName, Math.max(120, innerW * 0.44 - 10), '14px ' + font);
+  const metaDateLines = wrap(metaDate, Math.max(120, innerW * 0.32 - 8), '14px ' + font);
+  const metaH = Math.max(1, metaNameLines.length, metaDateLines.length) * 20;
   // 客户名称与客户电话之间固定约 4 个汉字的间距
   const metaNameW = metaNameLines.length ? Math.max(...metaNameLines.map(t => measure.measureText(t).width)) : 0;
   const metaGapW = measure.measureText('中中中中').width;
   const metaPhoneX = padL + Math.min(metaNameW, innerW * 0.44 - 10) + metaGapW;
   const headTop = 14 + headerHeight + (companyDetails.length ? 2 + companyDetails.length * 17 : 0)
     + 6 + metaH + 6;
-  const upperLines = wrap('金额（大写）：' + amountUpper(o.total), innerW - 16, '13px ' + font);
+  const upperLines = wrap('金额（大写）：' + amountUpper(o.total), innerW - 16, '15px ' + font);
   const upperHeight = Math.max(26, upperLines.length * 18 + 8);
   const H = headTop + 24 + rows.length * ROW_H + 32 + upperHeight + 36;
 
@@ -147,12 +149,12 @@ function drawDocToCanvas(o, s) {
 
   // 标题与单号同排；公司名称只在水印中体现。
   ctx.textAlign = 'left';
-  ctx.font = 'bold 22px ' + font;
+  ctx.font = 'bold 30px ' + font;
   ctx.textAlign = 'center';
-  ctx.font = 'bold 22px ' + font;
+  ctx.font = 'bold 30px ' + font;
   ctx.fillText('送 货 单', W / 2, y + headerHeight / 2);
   ctx.textAlign = 'right';
-  ctx.font = '11px ' + font;
+  ctx.font = '13px ' + font;
   noLines.forEach((text, i) => ctx.fillText(text, W - padR, y + (headerHeight - noLines.length * 16) / 2 + i * 16 + 8));
   y += headerHeight;
   ctx.textAlign = 'left';
@@ -164,11 +166,11 @@ function drawDocToCanvas(o, s) {
   y += 6;
   // 客户名称、客户电话、送货日期同一行；客户名称过长时在左侧区域内换行。
   ctx.textAlign = 'left';
-  ctx.font = '12px ' + font;
-  metaNameLines.forEach((text, ri) => ctx.fillText(text, padL, y + ri * 18 + 9, innerW * 0.44 - 10));
-  if (phone) ctx.fillText(phone, metaPhoneX, y + 9, innerW * 0.24);
+  ctx.font = '14px ' + font;
+  metaNameLines.forEach((text, ri) => ctx.fillText(text, padL, y + ri * 20 + 10, innerW * 0.44 - 10));
+  if (phone) ctx.fillText(phone, metaPhoneX, y + 10, innerW * 0.24);
   ctx.textAlign = 'right';
-  metaDateLines.forEach((text, ri) => ctx.fillText(text, padL + innerW, y + ri * 18 + 9));
+  metaDateLines.forEach((text, ri) => ctx.fillText(text, padL + innerW, y + ri * 20 + 10));
   y += metaH;
   ctx.textAlign = 'left';
   y += 6;
@@ -180,19 +182,19 @@ function drawDocToCanvas(o, s) {
   const tableRight = padL + cols.reduce((a, b) => a + b, 0);
 
   ctx.fillStyle = '#F1F2F5';
-  ctx.fillRect(padL, y, tableRight - padL, 24);
+  ctx.fillRect(padL, y, tableRight - padL, 28);
   ctx.strokeStyle = '#999';
   ctx.lineWidth = 1;
-  ctx.strokeRect(padL, y, tableRight - padL, 24);
+  ctx.strokeRect(padL, y, tableRight - padL, 28);
   ctx.fillStyle = '#222';
-  ctx.font = 'bold 12px "SimSun","Microsoft YaHei",sans-serif';
+  ctx.font = 'bold 14px "SimSun","Microsoft YaHei",sans-serif';
   ctx.textAlign = 'center';
-  const heads = ['序号', '产品名称', '单位', '数量', '单价', '金额', '备注'];
-  heads.forEach((h, i) => ctx.fillText(h, colX[i] + cols[i] / 2, y + 12));
-  y += 24;
+  const heads = ['序号', '产品名称', '规格', '单位', '数量', '单价', '金额', '备注'];
+  heads.forEach((h, i) => ctx.fillText(h, colX[i] + cols[i] / 2, y + 15));
+  y += 28;
 
   // 只绘制实际商品，不补空白行。
-  ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
+  ctx.font = '14px "SimSun","Microsoft YaHei",sans-serif';
   for (let i = 0; i < rows.length; i++) {
     const it = rows[i];
     ctx.strokeRect(padL, y, tableRight - padL, ROW_H);
@@ -201,14 +203,15 @@ function drawDocToCanvas(o, s) {
       ctx.textAlign = 'center';
       ctx.fillText(String(i + 1), colX[0] + cols[0] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
-      ctx.fillText([fmt(it.name), fmt(it.spec)].filter(Boolean).join(' '), colX[1] + 4, y + ROW_H / 2, cols[1] - 8);
+      ctx.fillText(fmt(it.name), colX[1] + 4, y + ROW_H / 2, cols[1] - 8);
       ctx.textAlign = 'center';
-      ctx.fillText(fmt(it.unit), colX[2] + cols[2] / 2, y + ROW_H / 2, cols[2] - 8);
-      ctx.fillText(fmtNum(it.qty), colX[3] + cols[3] / 2, y + ROW_H / 2);
-      ctx.fillText(fmtPrice(it.price), colX[4] + cols[4] / 2, y + ROW_H / 2);
-      ctx.fillText(fmtMoney(it.amount), colX[5] + cols[5] / 2, y + ROW_H / 2);
+      ctx.fillText(fmt(it.spec), colX[2] + cols[2] / 2, y + ROW_H / 2, cols[2] - 8);
+      ctx.fillText(fmt(it.unit), colX[3] + cols[3] / 2, y + ROW_H / 2, cols[3] - 8);
+      ctx.fillText(fmtNum(it.qty), colX[4] + cols[4] / 2, y + ROW_H / 2);
+      ctx.fillText(fmtPrice(it.price), colX[5] + cols[5] / 2, y + ROW_H / 2);
+      ctx.fillText(fmtMoney(it.amount), colX[6] + cols[6] / 2, y + ROW_H / 2);
       ctx.textAlign = 'left';
-      ctx.fillText(fmt(it.remark), colX[6] + 4, y + ROW_H / 2, cols[6] - 8);
+      ctx.fillText(fmt(it.remark), colX[7] + 4, y + ROW_H / 2, cols[7] - 8);
     }
     y += ROW_H;
   }
@@ -228,22 +231,22 @@ function drawDocToCanvas(o, s) {
   }
   ctx.fillStyle = '#222';
   ctx.textAlign = 'center';
-  ctx.font = 'bold 13px ' + font;
+  ctx.font = 'bold 15px ' + font;
   ctx.fillText('合　计', (padL + colX[3]) / 2, y + 16);
-  ctx.font = '12px ' + font;
+  ctx.font = '14px ' + font;
   ctx.fillText(qtyTotal, colX[3] + cols[3] / 2, y + 16);
   ctx.textAlign = 'right';
-  ctx.font = 'bold 22px ' + font;
+  ctx.font = 'bold 26px ' + font;
   ctx.fillText('¥' + fmtMoney(o.total), tableRight - 8, y + 16);
   y += 32;
   ctx.strokeRect(padL, y, innerW, upperHeight);
   ctx.textAlign = 'left';
-  ctx.font = '13px ' + font;
-  upperLines.forEach((text, i) => ctx.fillText(text, padL + 8, y + 13 + i * 18));
+  ctx.font = '15px ' + font;
+  upperLines.forEach((text, i) => ctx.fillText(text, padL + 8, y + 14 + i * 19));
   y += upperHeight;
 
   // 制单人与收货签章并列。
-  ctx.font = '12px "SimSun","Microsoft YaHei",sans-serif';
+  ctx.font = '14px "SimSun","Microsoft YaHei",sans-serif';
   ctx.fillStyle = '#222';
   ctx.textAlign = 'left';
   ctx.fillText('制单人：' + (o.operator || ''), padL, y + 18, innerW / 2 - 10);
@@ -305,7 +308,7 @@ Views.print = {
           </div>
           <table>
             <thead><tr>
-              <th style="width:34px">序号</th><th>产品名称</th>
+              <th style="width:34px">序号</th><th>产品名称</th><th style="width:56px">规格</th>
               <th style="width:42px">单位</th><th style="width:52px">数量</th>
               <th style="width:64px">单价</th><th style="width:74px">金额</th><th style="width:56px">备注</th>
             </tr></thead>
@@ -313,7 +316,8 @@ Views.print = {
               ${rows.map((it, i) => `
                 <tr>
                   <td>${i + 1}</td>
-                  <td>${esc([it.name, it.spec].filter(Boolean).join(' '))}</td>
+                  <td>${esc(it.name || '')}</td>
+                  <td>${esc(it.spec || '')}</td>
                   <td>${esc(it.unit || '')}</td>
                   <td class="doc-num">${fmtNum(it.qty)}</td>
                   <td class="doc-num">${fmtPrice(it.price)}</td>

@@ -167,11 +167,15 @@ app.whenReady().then(async () => {
       check(Store.getLastPrice(saved.customer.id, saved.items[0].pid) === 5, 'Retry missed price history');
     })();
 
-    await run('product specification is included in print preview and exported image', async () => {
+    await run('product name and specification are printed in separate columns', async () => {
       await resetData();
       const saved = Store.addOrder(makeOrder());
       await navigate('#/print?id=' + saved.id);
-      check(document.querySelector('.doc table').textContent.includes('Water 500ml'), 'Print preview lost the specification');
+      // 产品名称列只放名称，规格单独成列，不再拼到名称后面
+      check(document.querySelector('.doc table').textContent.includes('Water'), 'Print preview lost the product name');
+      check(!document.querySelector('.doc table').textContent.includes('Water 500ml'), 'Specification should not be appended to the name');
+      const specHead = Array.from(document.querySelectorAll('.doc table th')).some(th => th.textContent.replace(/\s/g, '') === '规格');
+      check(specHead, 'Specification column header missing');
       const original = CanvasRenderingContext2D.prototype.fillText;
       const drawn = [];
       CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
@@ -179,7 +183,9 @@ app.whenReady().then(async () => {
       };
       try { drawDocToCanvas(saved, Store.getSettings()); }
       finally { CanvasRenderingContext2D.prototype.fillText = original; }
-      check(drawn.includes('Water 500ml'), 'Exported image lost the specification');
+      check(drawn.includes('Water'), 'Exported image lost the product name');
+      check(drawn.includes('500ml'), 'Exported image lost the specification value');
+      check(!drawn.includes('Water 500ml'), 'Exported image still merges specification into the name');
     })();
 
     await run('ordinary customer/product names cannot collide with object properties', async () => {
