@@ -138,11 +138,15 @@ Views.settings = {
         </section>
         <section class="settings-section" aria-labelledby="settings-about-title">
           <h2 class="settings-section-title" id="settings-about-title">关于</h2>
-          <div class="settings-card">
+          <div class="settings-card settings-about-card">
             <div class="settings-row settings-about-row">
               <img class="brand-icon brand-icon-about settings-brand-icon" src="assets/brand/dns-icon.svg" width="32" height="32" alt="送货宝标志">
-              <span class="settings-row-main"><span class="settings-row-title">送货宝</span><span class="settings-row-note">完全本地离线运行</span></span>
-              <span class="settings-row-value">v2.0.0</span>
+              <span class="settings-row-main"><span class="settings-row-title">送货宝</span><span class="settings-row-note">完全本地离线运行 · 支持在线检查更新</span></span>
+              <span class="settings-row-value" data-role="app-version">v2.0.1</span>
+            </div>
+            <div class="settings-about-actions">
+              <button type="button" class="btn btn-primary btn-sm" data-act="check-updates">检查更新</button>
+              <span class="settings-about-hint" data-role="update-hint">从 GitHub 检查是否有新版本</span>
             </div>
           </div>
         </section>
@@ -166,6 +170,36 @@ Views.settings = {
     } else {
       if (imageActions) imageActions.style.display = 'none';
       if (imageDirNote) imageDirNote.textContent = '网页版图片保存在浏览器本地存储中';
+    }
+
+    /* 关于：动态版本号 + 检查更新 */
+    const versionEl = $('[data-role="app-version"]', el);
+    const updateHintEl = $('[data-role="update-hint"]', el);
+    const checkBtn = $('[data-act="check-updates"]', el);
+    const updateSupported = !!(window.UpdateUI && window.UpdateUI.supported);
+    const paintVersion = v => { if (versionEl && v) versionEl.textContent = 'v' + v; };
+    if (window.Android && window.Android.getAppVersion) {
+      window.Android.getAppVersion()
+        .then(res => { if (res && res.version) paintVersion(res.version); })
+        .catch(() => {});
+    }
+    if (!updateSupported) {
+      if (checkBtn) checkBtn.style.display = 'none';
+      if (updateHintEl) updateHintEl.textContent = '当前环境不支持在线更新';
+    } else if (window.UpdateUI) {
+      window.UpdateUI.refreshVersion().then(paintVersion);
+      const unsub = window.UpdateUI.subscribe(state => {
+        if (!updateHintEl) return;
+        if (state.phase === 'checking') updateHintEl.textContent = '正在检查更新…';
+        else if (state.phase === 'available') updateHintEl.textContent = '发现新版本' + (state.version ? ' v' + state.version : '');
+        else if (state.phase === 'downloading' || state.phase === 'progress') updateHintEl.textContent = '正在下载更新…';
+        else if (state.phase === 'downloaded') updateHintEl.textContent = '更新已下载，即将安装';
+        else if (state.phase === 'none') updateHintEl.textContent = '已是最新版本' + (state.version ? ' v' + state.version : '');
+        else if (state.phase === 'error') updateHintEl.textContent = '检查更新失败，请稍后重试';
+        else if (state.phase === 'idle') updateHintEl.textContent = '从 GitHub 检查是否有新版本';
+        if (state.version) paintVersion(state.version);
+      });
+      el.addEventListener('view-unmount', unsub, { once: true });
     }
 
     /* 数据保存位置（仅桌面端） */
@@ -270,6 +304,11 @@ Views.settings = {
       const act = e.target.closest('[data-act]');
       if (!act) return;
       const a = act.dataset.act;
+      if (a === 'check-updates') {
+        if (!(window.UpdateUI && window.UpdateUI.supported)) { toast('当前环境不支持检查更新', true); return; }
+        window.UpdateUI.check();
+        return;
+      }
       if (a === 'choose-image-dir') {
         if (!(window.Android && window.Android.chooseImageDir)) { toast('当前环境不支持设置文件夹', true); return; }
         try {

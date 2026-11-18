@@ -186,6 +186,31 @@ const AndroidBridge = {
     return ipcRenderer.invoke('sd:setCloseAction', action)
       .catch(err => ({ ok: false, error: String(err && err.message || err) }));
   },
+
+  /* ---------- 应用版本与更新（桌面端） ---------- */
+  getAppVersion() {
+    return ipcRenderer.invoke('sd:getAppVersion')
+      .catch(err => ({ ok: false, error: String(err && err.message || err) }));
+  },
+  checkForUpdates() {
+    return ipcRenderer.invoke('sd:checkForUpdates')
+      .catch(err => ({ ok: false, error: String(err && err.message || err) }));
+  },
+  downloadUpdate() {
+    return ipcRenderer.invoke('sd:downloadUpdate')
+      .catch(err => ({ ok: false, error: String(err && err.message || err) }));
+  },
+  installUpdate() {
+    return ipcRenderer.invoke('sd:installUpdate')
+      .catch(err => ({ ok: false, error: String(err && err.message || err) }));
+  },
+  /* 主进程推送的更新事件：available / none / progress / downloaded / error */
+  onUpdateEvent(handler) {
+    if (typeof handler !== 'function') return () => {};
+    const listener = (_event, payload) => { try { handler(payload || {}); } catch (_) { /* ignore */ } };
+    ipcRenderer.on('sd:update', listener);
+    return () => { try { ipcRenderer.removeListener('sd:update', listener); } catch (_) { /* ignore */ } };
+  },
 };
 
 /* ============================================================

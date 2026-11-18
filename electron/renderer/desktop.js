@@ -452,6 +452,12 @@ window.DNSDesktop = (() => {
     window.DNSBackground={isEnabled:()=>prefs.scene,setEnabled:setSceneEnabled,refresh,stats:()=>({state:!prefs.scene?'off':mode!=='orders'?'skip':scene?'ready':sceneLoading?'loading':'fallback',fps:scene?.stats().fps||0,tier:'送货单首页',reducedMotion:!!(scene&&!scene.stats().motion),level:0})};
     window.__appBack=()=>{if(state.selectionOpen&&['orders','stats'].includes(mode))closeSelection(true);else if(mode==='task')go(taskReturn);else if(mode==='reader')go(readerReturn);else if(mode==='detail')go(detailReturn);else go('#/orders');return true;};
     route();ready=true;
+    // 左下角版本号：优先取应用自身版本（打包后 2.0.x），避免硬编码过期
+    try{
+      window.Android?.getAppVersion?.().then(res=>{
+        if(res&&res.version){const v=root.querySelector('[data-role="shell-version"]');if(v)v.textContent='V '+res.version;}
+      }).catch(()=>{});
+    }catch(_){/* ignore */}
     if(window.__DNSStorageInfo?.repaired?.length)toast('发现数据文件丢失或损坏，已从本机备份回填，请核对最近的单据',true);
     moduleResizeObserver=new ResizeObserver(updateModuleGeometry);moduleResizeObserver.observe(page);
     metricResizeObserver=new ResizeObserver(scheduleMetrics);metricResizeObserver.observe(root.querySelector('#dispatch-panel'));metricResizeObserver.observe(root.querySelector('#statistics-panel'));

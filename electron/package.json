@@ -1,6 +1,6 @@
 {
   "name": "songhuodan-desktop",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "private": true,
   "description": "送货宝 — 独立 Electron 桌面应用",
   "main": "main.js",
@@ -22,6 +22,7 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "build:win": "electron-builder --win --x64",
+    "release:win": "electron-builder --win --x64 --publish always",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
     "test:performance": "node tests/run-ui.cjs performance.cjs",
@@ -76,6 +77,13 @@
       "webapp/**/*"
     ],
     "afterPack": "scripts/after-pack-clean.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "BoundBunny",
+        "repo": "Delivery-Note-Statistics"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "webapp/assets/brand/dns-icon-512.png"
@@ -100,5 +108,8 @@
   },
   "allowScripts": {
     "electron@31.7.7": true
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

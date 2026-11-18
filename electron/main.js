@@ -1049,6 +1049,80 @@ function initStorage() {
   } catch (_) { return null; }
 }
 
+/* ============================================================
+ * 应用内检查与更新（GitHub Releases）
+ * ------------------------------------------------------------
+ * 用 electron-updater 读取发布到 GitHub Releases 的 latest.yml，
+ * 与 package.json 的 version 比较。老板点“检查更新”或启动时自动检查，
+ * 有新版就在站内弹窗说明，点“下载并安装”后下载完成自动退出并安装。
+ * 开发模式（未打包）不启用，避免误触发。
+ * ============================================================ */
+const UPDATER_ENABLED = app.isPackaged && !SMOKE && process.env.DNS_DISABLE_UPDATER !== '1';
+let autoUpdater = null;
+function getUpdater() {
+  if (autoUpdater) return autoUpdater;
+  if (!UPDATER_ENABLED) return null;
+  try {
+    const { autoUpdater: updater } = require('electron-updater');
+    updater.autoDownload = false;        // 由老板确认后再下载
+    updater.autoInstallOnAppQuit = true; // 下载完若未立即安装，退出时兜底安装
+    updater.allowPrerelease = false;
+    updater.logger = null;
+    updater.on('error', err => sendUpdateEvent('error', { message: String(err && err.message || err) }));
+    updater.on('update-available', info => sendUpdateEvent('available', {
+      version: info && info.version, notes: releaseNotesText(info && info.releaseNotes), releaseDate: info && info.releaseDate,
+    }));
+    updater.on('update-not-available', info => sendUpdateEvent('none', { current: appVersion(), latest: info && info.version }));
+    updater.on('download-progress', progress => sendUpdateEvent('progress', {
+      percent: Math.max(0, Math.min(100, Number(progress && progress.percent) || 0)),
+      transferred: progress && progress.transferred, total: progress && progress.total,
+    }));
+    updater.on('update-downloaded', info => sendUpdateEvent('downloaded', { version: info && info.version }));
+    autoUpdater = updater;
+    return updater;
+  } catch (err) {
+    sendUpdateEvent('error', { message: '更新组件未安装：' + String(err && err.message || err) });
+    return null;
+  }
+}
+function releaseNotesText(notes) {
+  if (!notes) return '';
+  if (typeof notes === 'string') return notes;
+  if (Array.isArray(notes)) return notes.map(n => {
+    if (typeof n === 'string') return n;
+    return [n && n.version ? 'v' + n.version : '', n && n.note ? String(n.note) : ''].filter(Boolean).join(' ');
+  }).join('\n');
+  return String(notes);
+}
+function sendUpdateEvent(type, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sd:update', Object.assign({ type }, payload || {}));
+}
+function appVersion() {
+  // 打包后 app.getVersion() 即本应用版本；开发模式（直接 electron 运行）会返回
+  // Electron 自身版本，故以本应用 package.json 为权威来源。
+  try { return require(path.join(__dirname, 'package.json')).version || app.getVersion(); }
+  catch (_) { return app.getVersion(); }
+}
+ipcMain.handle('sd:getAppVersion', async () => ({ ok: true, version: appVersion(), enabled: UPDATER_ENABLED }));
+ipcMain.handle('sd:checkForUpdates', async () => {
+  const updater = getUpdater();
+  if (!updater) return { ok: false, error: UPDATER_ENABLED ? '更新组件初始化失败' : '开发模式或冒烟测试不检查更新' };
+  try { await updater.checkForUpdates(); return { ok: true }; }
+  catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+});
+ipcMain.handle('sd:downloadUpdate', async () => {
+  const updater = getUpdater();
+  if (!updater) return { ok: false, error: '更新组件不可用' };
+  try { await updater.downloadUpdate(); return { ok: true }; }
+  catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+});
+ipcMain.handle('sd:installUpdate', async () => {
+  const updater = getUpdater();
+  if (!updater) return { ok: false, error: '更新组件不可用' };
+  try { isQuitting = true; updater.quitAndInstall(false, true); return { ok: true }; }
+  catch (err) { return { ok: false, error: String(err && err.message || err) }; }
+});
+
 /* ---------- 生命周期 ---------- */
 app.whenReady().then(() => {
   if (!ownsProfile) return;
@@ -1058,6 +1132,10 @@ app.whenReady().then(() => {
   registerImageProtocol();
   buildMenu();
   createWindow();
+  if (UPDATER_ENABLED) {
+    // 启动后稍等界面就绪再静默检查，不阻塞老板开单。
+    setTimeout(() => { try { getUpdater()?.checkForUpdates().catch(() => {}); } catch (_) { /* ignore */ } }, 6000);
+  }
   if (SMOKE) {
     mainWindow.webContents.once('did-finish-load', () => {
       setTimeout(() => runSmokeTest(mainWindow), 1200);
