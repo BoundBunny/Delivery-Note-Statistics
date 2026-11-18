@@ -18,7 +18,7 @@ app.whenReady().then(async () => {
   const js = code => win.webContents.executeJavaScript(code, true);
   const wait = async expr => { for (let i = 0; i < 150; i++) { try { if (await js(expr)) return; } catch (_) {} await pause(80); } throw new Error('timeout ' + expr); };
   await wait('!!window.DNSDesktop?.ready');
-  win.show(); win.setContentSize(1180, 1600); await pause(300);
+  win.show(); win.setContentSize(1180, 900); await pause(300);
   await js("location.hash='#/settings'");
   await pause(900);
   await js("(() => { const v = document.querySelector('[data-role=app-version]'); if (v) v.scrollIntoView({ block: 'center' }); })()");

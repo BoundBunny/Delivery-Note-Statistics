@@ -126,10 +126,13 @@
       if (isManual) toast('已是最新版本' + ((payload.current || version) ? ' v' + (payload.current || version) : ''));
       emit({ phase: 'none', version: payload.current || version, hint: '已是最新版本' });
     } else if (type === 'progress') {
-      if (modal) {
+      const value = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+      // 若当前没有下载态弹窗（例如直接收到进度事件），重建为下载态
+      if (!modal || !modal.querySelector('.upd-bar')) {
+        setModal({ title: '正在下载更新', subtitle: '请保持网络连接，下载完成后会自动退出并安装。', progress: value, actions: [] });
+      } else {
         const bar = modal.querySelector('.upd-bar i');
         const percent = modal.querySelector('.upd-percent');
-        const value = Math.max(0, Math.min(100, Number(payload.percent) || 0));
         if (bar) bar.style.width = value + '%';
         if (percent) percent.textContent = Math.round(value) + '%';
       }
