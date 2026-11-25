@@ -86,10 +86,10 @@ function drawDocToCanvas(o, s) {
   // 列宽由完整数值决定；画布覆盖全部列，金额不压缩、不截断。
   const specW = Math.max(52, Math.min(110, Math.ceil(measure.measureText('规格').width) +
     (o.items.length ? Math.max.apply(null, o.items.map(it => measure.measureText(it.spec == null ? '' : String(it.spec)).width)) : 0) + 14));
-  const cols = [30, 170, specW, 40, numericWidth('qty', fmtNum, 60), numericWidth('price', fmtPrice, 100), numericWidth('amount', fmtMoney, 112), 80];
+  const cols = [30, 170, specW, 40, numericWidth('qty', fmtNum, 60), numericWidth('price', fmtPrice, 100), numericWidth('amount', fmtMoney, 112)];
   cols[4] = Math.max(cols[4], Math.ceil(measure.measureText(qtyTotal).width) + 14);
   measure.font = 'bold 22px ' + font;
-  cols[6] = Math.max(cols[6], Math.ceil(measure.measureText('¥' + fmtMoney(o.total)).width) + 24 - cols[5] - cols[7]);
+  cols[6] = Math.max(cols[6], Math.ceil(measure.measureText('¥' + fmtMoney(o.total)).width) + 24);
   const W = padL + cols.reduce((a, b) => a + b, 0) + padR;
   const innerW = W - padL - padR;
   const scale = 2;
@@ -189,7 +189,7 @@ function drawDocToCanvas(o, s) {
   ctx.fillStyle = '#222';
   ctx.font = 'bold 14px "SimSun","Microsoft YaHei",sans-serif';
   ctx.textAlign = 'center';
-  const heads = ['序号', '产品名称', '规格', '单位', '数量', '单价', '金额', '备注'];
+  const heads = ['序号', '产品名称', '规格', '单位', '数量', '单价', '金额'];
   heads.forEach((h, i) => ctx.fillText(h, colX[i] + cols[i] / 2, y + 15));
   y += 28;
 
@@ -210,8 +210,6 @@ function drawDocToCanvas(o, s) {
       ctx.fillText(fmtNum(it.qty), colX[4] + cols[4] / 2, y + ROW_H / 2);
       ctx.fillText(fmtPrice(it.price), colX[5] + cols[5] / 2, y + ROW_H / 2);
       ctx.fillText(fmtMoney(it.amount), colX[6] + cols[6] / 2, y + ROW_H / 2);
-      ctx.textAlign = 'left';
-      ctx.fillText(fmt(it.remark), colX[7] + 4, y + ROW_H / 2, cols[7] - 8);
     }
     y += ROW_H;
   }
@@ -310,7 +308,7 @@ Views.print = {
             <thead><tr>
               <th style="width:34px">序号</th><th>产品名称</th><th style="width:56px">规格</th>
               <th style="width:42px">单位</th><th style="width:52px">数量</th>
-              <th style="width:64px">单价</th><th style="width:74px">金额</th><th style="width:56px">备注</th>
+              <th style="width:64px">单价</th><th style="width:74px">金额</th>
             </tr></thead>
             <tbody>
               ${rows.map((it, i) => `
@@ -322,7 +320,6 @@ Views.print = {
                   <td class="doc-num">${fmtNum(it.qty)}</td>
                   <td class="doc-num">${fmtPrice(it.price)}</td>
                   <td class="doc-num">${fmtMoney(it.amount)}</td>
-                  <td>${esc(it.remark || '')}</td>
                 </tr>`).join('')}
             </tbody>
             <tfoot class="d-total">
