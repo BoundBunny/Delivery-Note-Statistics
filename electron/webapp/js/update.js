@@ -25,8 +25,37 @@
     updateListeners.forEach(fn => { try { fn(state); } catch (_) { /* ignore */ } });
   }
 
+  function decodeEntities(text) {
+    return String(text || '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&amp;/gi, '&');
+  }
+
+  // 兼容旧版服务端仍带 HTML 标签的 releaseNotes：转成纯文本换行，绝不显示标签。
+  function sanitizeNotes(raw) {
+    let text = String(raw || '');
+    if (/<[a-zA-Z/!]/.test(text)) {
+      text = text
+        .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+        .replace(/<\s*\/\s*(p|div|li|h[1-6]|tr)\s*>/gi, '\n')
+        .replace(/<\s*li[^>]*>/gi, '· ')
+        .replace(/<[^>]*>/g, '');
+    }
+    text = decodeEntities(text);
+    const lines = text.split(/\r?\n/)
+      .map(line => line.replace(/[ \t]+/g, ' ').trim())
+      .filter(Boolean);
+    const out = [];
+    for (const line of lines) if (!out.length || out[out.length - 1] !== line) out.push(line);
+    return out.join('\n').trim();
+  }
+
   function notesHtml(notes) {
-    const text = String(notes || '').trim();
+    const text = sanitizeNotes(notes);
     if (!text) return '<p class="upd-note-empty">本次更新包含体验与稳定性改进。</p>';
     return '<pre class="upd-notes">' + esc(text) + '</pre>';
   }

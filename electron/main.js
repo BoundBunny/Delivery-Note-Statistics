@@ -1085,14 +1085,36 @@ function getUpdater() {
     return null;
   }
 }
+function notesToPlainText(raw) {
+  return String(raw == null ? '' : raw)
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|li|h[1-6]|tr)\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '· ')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;/gi, '&');
+}
+function cleanNotes(text) {
+  const lines = String(text == null ? '' : text)
+    .split(/\r?\n/)
+    .map(line => line.replace(/[ \t]+/g, ' ').trim())
+    .filter(Boolean);
+  const out = [];
+  for (const line of lines) if (!out.length || out[out.length - 1] !== line) out.push(line);
+  return out.join('\n').trim();
+}
 function releaseNotesText(notes) {
   if (!notes) return '';
-  if (typeof notes === 'string') return notes;
-  if (Array.isArray(notes)) return notes.map(n => {
-    if (typeof n === 'string') return n;
-    return [n && n.version ? 'v' + n.version : '', n && n.note ? String(n.note) : ''].filter(Boolean).join(' ');
-  }).join('\n');
-  return String(notes);
+  if (typeof notes === 'string') return cleanNotes(notesToPlainText(notes));
+  if (Array.isArray(notes)) return cleanNotes(notes.map(n => {
+    const text = typeof n === 'string' ? n : (n && n.note != null ? String(n.note) : '');
+    return notesToPlainText(text);
+  }).join('\n'));
+  return cleanNotes(notesToPlainText(String(notes)));
 }
 function sendUpdateEvent(type, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sd:update', Object.assign({ type }, payload || {}));
